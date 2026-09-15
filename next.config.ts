@@ -13,6 +13,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  outputFileTracingExcludes: {
+    "*": [".env.local", ".env*.local"],
+  },
   turbopack: {
     root: process.cwd(),
   },
