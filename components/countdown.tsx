@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react"
 
-import { formatRemaining, remainingMs } from "@/lib/expiration"
+import { formatClock, formatRemaining, remainingMs } from "@/lib/expiration"
 
-export function Countdown({ expiresAt }: { expiresAt: string }) {
+export function Countdown({
+  expiresAt,
+  compact = false,
+}: {
+  expiresAt: string
+  compact?: boolean
+}) {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -15,7 +21,7 @@ export function Countdown({ expiresAt }: { expiresAt: string }) {
   const remaining = remainingMs(new Date(now), expiresAt)
   return (
     <span className="tabular-nums" aria-live="polite">
-      {formatRemaining(remaining)}
+      {compact ? formatClock(remaining) : formatRemaining(remaining)}
     </span>
   )
 }

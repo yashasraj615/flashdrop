@@ -11,7 +11,7 @@ export function wantsHtml(request: Request) {
 }
 
 export function redirectToDownloadPage(request: Request, token: string) {
-  return Response.redirect(new URL(`/download/${token}`, request.url), 303)
+  return Response.redirect(new URL(`/t/${token}`, request.url), 303)
 }
 
 export function handleRouteError(error: unknown) {

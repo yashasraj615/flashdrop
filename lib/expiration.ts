@@ -54,13 +54,18 @@ export function remainingMs(now: Date, expiresAt: Date | string): number {
   return Math.max(0, new Date(expiresAt).getTime() - now.getTime())
 }
 
-export function formatRemaining(ms: number): string {
+export function formatClock(ms: number): string {
   if (ms <= 0) return "Expired"
   const totalSeconds = Math.floor(ms / 1000)
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
-  if (hours > 0) return `${hours}h ${minutes}m remaining`
-  if (minutes > 0) return `${minutes}m ${seconds}s remaining`
-  return `${seconds}s remaining`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+export function formatRemaining(ms: number): string {
+  const clock = formatClock(ms)
+  return clock === "Expired" ? "Expired" : `${clock} remaining`
 }

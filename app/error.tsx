@@ -1,7 +1,6 @@
 "use client"
 
-import { TransferUnavailable } from "@/components/download-view"
-import { SiteShell } from "@/components/site-shell"
+import { AppFrame } from "@/components/app-frame"
 
 export default function ErrorPage({
   reset,
@@ -10,18 +9,22 @@ export default function ErrorPage({
   reset: () => void
 }) {
   return (
-    <SiteShell>
-      <div className="pt-10">
-        <TransferUnavailable
-          title="Something went wrong."
-          description="Please try again. Your file was not exposed."
-        />
-        <div className="mt-4 text-center">
-          <button type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={reset}>
+    <AppFrame>
+      <div className="mx-auto w-full max-w-xl pt-10">
+        <div className="glass-panel rounded-[32px] p-8 text-center">
+          <h1 className="font-heading text-3xl tracking-tight">Something went wrong</h1>
+          <p className="mt-3 text-sm text-white/60">
+            Please try again. Nothing from this transfer was exposed.
+          </p>
+          <button
+            type="button"
+            className="mt-6 text-sm text-primary underline-offset-4 hover:underline"
+            onClick={reset}
+          >
             Try again
           </button>
         </div>
       </div>
-    </SiteShell>
+    </AppFrame>
   )
 }

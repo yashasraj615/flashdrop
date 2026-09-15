@@ -1,19 +1,17 @@
 import "server-only"
 
-import {
-  abortMultipartUpload,
-  deleteObject,
-} from "@/lib/storage"
-import {
-  deleteFileRecord,
-  listCleanupCandidates,
-  markDeleting,
-  recordCleanupFailure,
-  recordCleanupRun,
-  type TransferFile,
-} from "@/lib/files"
+import { abortMultipartUpload, deleteObject } from "@/lib/storage"
+import { listFilesForTransfer, type TransferFile } from "@/lib/files"
 import { logError, logEvent } from "@/lib/logger"
 import { pruneRateLimits } from "@/lib/rate-limit"
+import {
+  deleteTransferRecord,
+  listCleanupCandidates,
+  markTransferDeleting,
+  recordCleanupFailure,
+  recordCleanupRun,
+  type TransferRecord,
+} from "@/lib/transfers"
 
 export type CleanupResult = {
   scanned: number
@@ -30,19 +28,22 @@ async function removeStoredObject(file: TransferFile) {
   await deleteObject(file.objectKey)
 }
 
-async function cleanupOne(file: TransferFile): Promise<"deleted" | "retried" | "failed"> {
-  const target = await markDeleting(file.id)
-  const current = target ?? file
+async function cleanupOne(transfer: TransferRecord): Promise<"deleted" | "retried" | "failed"> {
+  const target = await markTransferDeleting(transfer.id)
+  const current = target ?? transfer
+  const files = await listFilesForTransfer(current.id)
 
   try {
-    await removeStoredObject(current)
-    await deleteFileRecord(current.id)
-    logEvent("cleanup.file_deleted", { fileId: current.id })
+    for (const file of files) {
+      await removeStoredObject(file)
+    }
+    await deleteTransferRecord(current.id)
+    logEvent("cleanup.transfer_deleted", { transferId: current.id, files: files.length })
     return "deleted"
   } catch (error) {
     const message = error instanceof Error ? error.message : "Cleanup failed"
     await recordCleanupFailure(current.id, message).catch(() => undefined)
-    logError("cleanup.file_failed", error, { fileId: current.id })
+    logError("cleanup.transfer_failed", error, { transferId: current.id })
     return current.cleanupAttempts > 0 ? "retried" : "failed"
   }
 }
@@ -61,10 +62,11 @@ export async function runCleanup(): Promise<CleanupResult> {
     const candidates = await listCleanupCandidates(50)
     stats.scanned = candidates.length
 
-    for (const file of candidates) {
-      const outcome = await cleanupOne(file)
+    for (const transfer of candidates) {
+      const files = await listFilesForTransfer(transfer.id)
+      const outcome = await cleanupOne(transfer)
       if (outcome === "deleted") {
-        stats.deletedObjects += 1
+        stats.deletedObjects += files.length
         stats.deletedRecords += 1
       } else if (outcome === "retried") {
         stats.retried += 1

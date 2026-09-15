@@ -34,14 +34,14 @@ async function removeObject(objectKey: string, uploadId: string | null) {
 
 export default {
   async fetch() {
-    const rows = await sql`
-      SELECT id, object_key, multipart_upload_id
-      FROM files
+    const transfers = await sql`
+      SELECT id
+      FROM transfers
       WHERE
         status IN ('expired', 'deleting', 'failed')
         OR (status = 'active' AND expires_at <= NOW())
         OR (
-          status IN ('uploading', 'processing')
+          status = 'uploading'
           AND created_at <= NOW() - INTERVAL '6 hours'
         )
       ORDER BY created_at ASC
@@ -50,17 +50,24 @@ export default {
 
     let deleted = 0
     let failed = 0
-    for (const row of rows) {
+    for (const transfer of transfers) {
       try {
-        await sql`UPDATE files SET status = 'deleting', updated_at = NOW() WHERE id = ${row.id}::uuid`
-        await removeObject(String(row.object_key), row.multipart_upload_id ? String(row.multipart_upload_id) : null)
-        await sql`DELETE FROM files WHERE id = ${row.id}::uuid`
+        await sql`UPDATE transfers SET status = 'deleting', updated_at = NOW() WHERE id = ${transfer.id}::uuid`
+        const files = await sql`
+          SELECT object_key, multipart_upload_id
+          FROM transfer_files
+          WHERE transfer_id = ${transfer.id}::uuid
+        `
+        for (const file of files) {
+          await removeObject(String(file.object_key), file.multipart_upload_id ? String(file.multipart_upload_id) : null)
+        }
+        await sql`DELETE FROM transfers WHERE id = ${transfer.id}::uuid`
         deleted += 1
       } catch {
         failed += 1
       }
     }
 
-    return Response.json({ ok: true, scanned: rows.length, deleted, failed })
+    return Response.json({ ok: true, scanned: transfers.length, deleted, failed })
   },
 }

@@ -19,7 +19,7 @@ export function requireEnv(name: string): string {
 }
 
 export function shareUrl(token: string): string {
-  return `${appUrl()}/download/${token}`
+  return `${appUrl()}/t/${token}`
 }
 
 export function storageBucket(): string {
