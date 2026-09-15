@@ -1,19 +1,26 @@
-import { Button } from "@/components/ui/button"
+import { SiteShell } from "@/components/site-shell"
+import { UploadExperience } from "@/components/upload-experience"
+import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants"
 
-export default function Page() {
+export default function HomePage() {
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
+    <SiteShell>
+      <section className="mx-auto flex w-full max-w-xl flex-col gap-8 pt-6 sm:pt-14">
+        <div className="text-center">
+          <p className="text-xs font-medium tracking-[0.2em] text-primary uppercase">
+            {APP_NAME}
+          </p>
+          <h1 className="font-heading mt-4 text-4xl tracking-tight text-balance sm:text-6xl">
+            Send files.
+            <br />
+            Simply.
+          </h1>
+          <p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground text-pretty sm:text-base">
+            {APP_DESCRIPTION}
+          </p>
         </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
-      </div>
-    </div>
+        <UploadExperience />
+      </section>
+    </SiteShell>
   )
 }
