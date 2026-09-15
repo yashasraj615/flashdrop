@@ -11,11 +11,11 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  CHUNK_SIZE_BYTES,
   MAX_FILE_SIZE_BYTES,
+  PART_SIZE_BYTES,
   UPLOAD_CONCURRENCY,
-  chunkByteRange,
-  expectedChunkCount,
+  expectedPartCount,
+  partByteRange,
 } from "@/lib/constants"
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -42,10 +42,33 @@ const STATUS_COPY: Record<Exclude<Phase, "idle" | "selected" | "complete" | "err
   finalizing: "Finalizing",
 }
 
-async function sha256Hex(buffer: ArrayBuffer) {
-  if (!globalThis.crypto?.subtle) return ""
-  const digest = await crypto.subtle.digest("SHA-256", buffer)
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+function putWithProgress(
+  url: string,
+  body: Blob,
+  contentType: string | undefined,
+  onProgress: (loaded: number) => void,
+  signal: AbortSignal
+) {
+  return new Promise<string | null>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("PUT", url)
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded)
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.getResponseHeader("ETag"))
+        return
+      }
+      reject(new Error("Upload interrupted."))
+    }
+    xhr.onerror = () => reject(new Error("Upload interrupted."))
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"))
+    const onAbort = () => xhr.abort()
+    signal.addEventListener("abort", onAbort, { once: true })
+    xhr.send(body)
+  })
 }
 
 export function UploadExperience() {
@@ -55,6 +78,7 @@ export function UploadExperience() {
   const startedAtRef = useRef(0)
   const tokenRef = useRef<string | null>(null)
   const loadedRef = useRef(0)
+  const partLoadedRef = useRef<Record<number, number>>({})
 
   const [phase, setPhase] = useState<Phase>("idle")
   const [dragging, setDragging] = useState(false)
@@ -73,6 +97,7 @@ export function UploadExperience() {
     abortRef.current = null
     tokenRef.current = null
     loadedRef.current = 0
+    partLoadedRef.current = {}
     setPhase("idle")
     setFile(null)
     setError(null)
@@ -97,113 +122,104 @@ export function UploadExperience() {
     abortRef.current = abort
     startedAtRef.current = Date.now()
     loadedRef.current = 0
+    partLoadedRef.current = {}
     setPhase("preparing")
     updateProgress(0, target.size)
 
     try {
-      let token = tokenRef.current
-      let chunkSize = CHUNK_SIZE_BYTES
-      let chunkCount = expectedChunkCount(target.size, chunkSize)
-
-      if (!token) {
-        const initResponse = await fetch("/api/upload/init", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            filename: target.name,
-            mimeType: target.type || "application/octet-stream",
-            size: target.size,
-          }),
-          signal: abort.signal,
-        })
-        const initData = (await initResponse.json()) as {
-          token?: string
-          chunkSize?: number
-          chunkCount?: number
-          error?: string
-        }
-        if (!initResponse.ok || !initData.token) {
-          throw new Error(initData.error || "We couldn't prepare your file. Please try again.")
-        }
-        token = initData.token
-        chunkSize = initData.chunkSize ?? CHUNK_SIZE_BYTES
-        chunkCount = initData.chunkCount ?? expectedChunkCount(target.size, chunkSize)
-        tokenRef.current = token
-      }
-
-      setPhase("uploading")
-      const received = new Set<number>()
-
-      const statusResponse = await fetch(`/api/upload/status?token=${encodeURIComponent(token)}`, {
+      const initResponse = await fetch("/api/upload/init", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: target.name,
+          mimeType: target.type || "application/octet-stream",
+          size: target.size,
+        }),
         signal: abort.signal,
       })
-      if (statusResponse.ok) {
-        const status = (await statusResponse.json()) as {
-          receivedIndexes?: number[]
-          chunkSize?: number
-          chunkCount?: number
-        }
-        for (const index of status.receivedIndexes ?? []) received.add(index)
-        chunkSize = status.chunkSize ?? chunkSize
-        chunkCount = status.chunkCount ?? chunkCount
+      const initData = (await initResponse.json()) as {
+        token?: string
+        mode?: "put" | "multipart"
+        partSize?: number
+        partCount?: number
+        uploadUrl?: string
+        contentType?: string
+        error?: string
+      }
+      if (!initResponse.ok || !initData.token) {
+        throw new Error(initData.error || "We couldn't prepare your file. Please try again.")
       }
 
-      let loaded = 0
-      for (const index of received) {
-        loaded += chunkByteRange(index, target.size, chunkSize).length
-      }
-      loadedRef.current = loaded
-      updateProgress(loaded, target.size)
+      tokenRef.current = initData.token
+      setPhase("uploading")
+      const partSize = initData.partSize ?? PART_SIZE_BYTES
+      const partCount = initData.partCount ?? expectedPartCount(target.size, partSize)
+      const completedParts: { partNumber: number; etag: string }[] = []
 
-      let nextIndex = 0
-      const workerCount = Math.min(UPLOAD_CONCURRENCY, Math.max(1, chunkCount))
+      if (initData.mode === "put") {
+        if (!initData.uploadUrl) throw new Error("We couldn't prepare your file. Please try again.")
+        await putWithProgress(
+          initData.uploadUrl,
+          target,
+          initData.contentType,
+          (loaded) => updateProgress(loaded, target.size),
+          abort.signal
+        )
+      } else {
+        let nextIndex = 0
+        const workers = Math.min(UPLOAD_CONCURRENCY, partCount)
 
-      async function worker() {
-        while (!abort.signal.aborted) {
-          const index = nextIndex
-          nextIndex += 1
-          if (index >= chunkCount) return
-          if (received.has(index)) continue
+        async function worker() {
+          while (!abort.signal.aborted) {
+            const index = nextIndex
+            nextIndex += 1
+            if (index >= partCount) return
+            const partNumber = index + 1
+            const { offset, length } = partByteRange(index, target.size, partSize)
+            const slice = target.slice(offset, offset + length)
 
-          const { offset, length } = chunkByteRange(index, target.size, chunkSize)
-          const buffer = await target.slice(offset, offset + length).arrayBuffer()
-          const checksum = await sha256Hex(buffer)
-
-          let attempt = 0
-          while (true) {
-            const response = await fetch("/api/upload/chunk", {
+            const urlResponse = await fetch("/api/upload/part-url", {
               method: "POST",
-              headers: {
-                "content-type": "application/octet-stream",
-                "x-upload-token": token!,
-                "x-chunk-index": String(index),
-                "x-chunk-checksum": checksum,
-              },
-              body: buffer,
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ token: initData.token, partNumber }),
               signal: abort.signal,
             })
-            if (response.ok) break
-            attempt += 1
-            const data = (await response.json().catch(() => ({}))) as { error?: string }
-            if (attempt >= 4 || response.status === 409 || response.status === 413 || response.status === 429) {
-              throw new Error(data.error || "Upload interrupted.")
+            const urlData = (await urlResponse.json()) as { url?: string; error?: string }
+            if (!urlResponse.ok || !urlData.url) {
+              throw new Error(urlData.error || "Upload interrupted.")
             }
-            await new Promise((resolve) => window.setTimeout(resolve, 400 * attempt))
-          }
 
-          loadedRef.current += length
-          updateProgress(loadedRef.current, target.size)
+            const etag = await putWithProgress(
+              urlData.url,
+              slice,
+              undefined,
+              (loaded) => {
+                partLoadedRef.current[partNumber] = loaded
+                const totalLoaded = Object.values(partLoadedRef.current).reduce((sum, value) => sum + value, 0)
+                updateProgress(totalLoaded, target.size)
+              },
+              abort.signal
+            )
+            if (!etag) throw new Error("Upload interrupted.")
+            completedParts.push({ partNumber, etag })
+            partLoadedRef.current[partNumber] = length
+            const totalLoaded = Object.values(partLoadedRef.current).reduce((sum, value) => sum + value, 0)
+            updateProgress(totalLoaded, target.size)
+          }
         }
+
+        await Promise.all(Array.from({ length: workers }, () => worker()))
       }
 
-      await Promise.all(Array.from({ length: workerCount }, () => worker()))
       if (abort.signal.aborted) return
-
       setPhase("finalizing")
       const completeResponse = await fetch("/api/upload/complete", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({
+          token: initData.token,
+          parts: completedParts,
+        }),
         signal: abort.signal,
       })
       const completed = (await completeResponse.json()) as SharePayload & { error?: string }
@@ -254,8 +270,7 @@ export function UploadExperience() {
     event.preventDefault()
     setDragging(false)
     if (phase === "uploading" || phase === "preparing" || phase === "finalizing") return
-    const dropped = event.dataTransfer.files[0]
-    selectFile(dropped)
+    selectFile(event.dataTransfer.files[0])
   }
 
   const remainingSeconds =

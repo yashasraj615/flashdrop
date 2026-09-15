@@ -21,3 +21,7 @@ export function requireEnv(name: string): string {
 export function shareUrl(token: string): string {
   return `${appUrl()}/download/${token}`
 }
+
+export function storageBucket(): string {
+  return process.env.NEON_STORAGE_BUCKET || "temporary-files"
+}

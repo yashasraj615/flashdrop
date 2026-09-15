@@ -1,8 +1,8 @@
-import { listReceivedChunkIndexes } from "@/lib/chunks"
-import { CHUNK_SIZE_BYTES, RATE_LIMITS, expectedChunkCount } from "@/lib/constants"
+import { RATE_LIMITS, expectedPartCount } from "@/lib/constants"
 import { getFileByToken } from "@/lib/files"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit"
+import { listUploadedPartNumbers } from "@/lib/storage"
 import { isPlausibleToken } from "@/lib/tokens"
 
 export const runtime = "nodejs"
@@ -24,19 +24,17 @@ export async function GET(request: Request) {
       return jsonError("This transfer isn't valid.", 404)
     }
 
-    const receivedIndexes =
-      file.status === "uploading" || file.status === "processing"
-        ? await listReceivedChunkIndexes(file.id)
+    const receivedParts =
+      file.multipartUploadId && file.status === "uploading"
+        ? await listUploadedPartNumbers(file.objectKey, file.multipartUploadId)
         : []
 
     return Response.json({
       token: file.token,
       status: file.status,
       size: file.fileSize,
-      chunkSize: CHUNK_SIZE_BYTES,
-      chunkCount: expectedChunkCount(file.fileSize),
-      bytesReceived: file.bytesReceived,
-      receivedIndexes,
+      partCount: expectedPartCount(file.fileSize),
+      receivedParts,
     })
   } catch (error) {
     return handleRouteError(error)

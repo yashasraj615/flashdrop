@@ -3,6 +3,7 @@ import { deleteIncompleteUpload } from "@/lib/files"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logEvent } from "@/lib/logger"
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit"
+import { abortMultipartUpload, deleteObject } from "@/lib/storage"
 import { isPlausibleToken, tokenPreview } from "@/lib/tokens"
 
 export const runtime = "nodejs"
@@ -19,7 +20,14 @@ export async function POST(request: Request) {
       return jsonError("This transfer isn't valid.", 400)
     }
 
-    await deleteIncompleteUpload(body.token)
+    const file = await deleteIncompleteUpload(body.token)
+    if (file) {
+      if (file.multipartUploadId) {
+        await abortMultipartUpload(file.objectKey, file.multipartUploadId).catch(() => undefined)
+      }
+      await deleteObject(file.objectKey).catch(() => undefined)
+    }
+
     logEvent("upload.aborted", { token: tokenPreview(body.token) })
     return Response.json({ ok: true })
   } catch (error) {

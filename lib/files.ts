@@ -1,12 +1,8 @@
 import "server-only"
 
-import {
-  CHUNK_SIZE_BYTES,
-  MAX_FILE_SIZE_BYTES,
-  expectedChunkCount,
-  isCompleteUpload,
-} from "@/lib/constants"
-import { summarizeChunks } from "@/lib/chunks"
+import { randomUUID } from "node:crypto"
+
+import { MAX_FILE_SIZE_BYTES } from "@/lib/constants"
 import { getSql, toNumber } from "@/lib/db"
 import { shareUrl } from "@/lib/env"
 import {
@@ -18,7 +14,7 @@ import { sanitizeFilename, storageContentType } from "@/lib/filenames"
 import { createDownloadToken } from "@/lib/tokens"
 
 const FILE_COLUMNS = `
-  id, token, original_filename, mime_type, file_size, chunk_count, bytes_received,
+  id, token, object_key, original_filename, mime_type, file_size, multipart_upload_id,
   status, uploaded_at, expires_at, deleted_at, download_count, last_downloaded_at,
   cleanup_attempts, last_cleanup_error, created_at, updated_at
 `
@@ -26,11 +22,11 @@ const FILE_COLUMNS = `
 export type TransferFile = {
   id: string
   token: string
+  objectKey: string
   originalFilename: string
   mimeType: string
   fileSize: number
-  chunkCount: number | null
-  bytesReceived: number
+  multipartUploadId: string | null
   status: FileLifecycleStatus
   uploadedAt: string | null
   expiresAt: string | null
@@ -49,11 +45,11 @@ function mapFile(row: FileRow): TransferFile {
   return {
     id: String(row.id),
     token: String(row.token),
+    objectKey: String(row.object_key),
     originalFilename: String(row.original_filename),
     mimeType: String(row.mime_type),
     fileSize: toNumber(row.file_size),
-    chunkCount: row.chunk_count == null ? null : toNumber(row.chunk_count),
-    bytesReceived: toNumber(row.bytes_received),
+    multipartUploadId: row.multipart_upload_id ? String(row.multipart_upload_id) : null,
     status: String(row.status) as FileLifecycleStatus,
     uploadedAt: row.uploaded_at ? new Date(String(row.uploaded_at)).toISOString() : null,
     expiresAt: row.expires_at ? new Date(String(row.expires_at)).toISOString() : null,
@@ -106,8 +102,6 @@ export function publicFileView(file: TransferFile) {
     expiresAt: file.expiresAt,
     downloadCount: file.downloadCount,
     shareUrl: shareUrl(file.token),
-    chunkSize: CHUNK_SIZE_BYTES,
-    chunkCount: expectedChunkCount(file.fileSize),
   }
 }
 
@@ -126,7 +120,7 @@ export async function createUploadRecord(input: {
   const sql = getSql()
   const filename = sanitizeFilename(input.filename)
   const mimeType = storageContentType(input.mimeType)
-  const chunkCount = expectedChunkCount(input.size)
+  const objectKey = `uploads/${randomUUID()}`
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const token = createDownloadToken()
@@ -134,16 +128,15 @@ export async function createUploadRecord(input: {
       const rows = await sql.query(
         `INSERT INTO files (
            token,
+           object_key,
            original_filename,
            mime_type,
            file_size,
-           chunk_count,
-           bytes_received,
            status
          )
-         VALUES ($1, $2, $3, $4, $5, 0, 'uploading')
+         VALUES ($1, $2, $3, $4, $5, 'uploading')
          RETURNING ${FILE_COLUMNS}`,
-        [token, filename, mimeType, input.size, chunkCount]
+        [token, objectKey, filename, mimeType, input.size]
       )
       return mapFile(rows[0] as FileRow)
     } catch (error) {
@@ -167,56 +160,45 @@ export async function getFileByToken(token: string) {
   return mapFile(rows[0] as FileRow)
 }
 
+export async function saveMultipartUploadId(token: string, uploadId: string) {
+  const sql = getSql()
+  await sql.query(
+    `UPDATE files
+     SET multipart_upload_id = $2, updated_at = NOW()
+     WHERE token = $1 AND status IN ('uploading', 'processing')`,
+    [token, uploadId]
+  )
+}
+
 export async function markUploadComplete(token: string) {
-  const file = await getFileByToken(token)
-  if (!file) return null
-  if (file.status === "active") return file
-  if (file.status !== "uploading" && file.status !== "processing") return null
-
-  const summary = await summarizeChunks(file.id)
-  if (!isCompleteUpload(file.fileSize, summary)) {
-    throw new UploadValidationError("Upload interrupted.")
-  }
-
   const sql = getSql()
   const rows = await sql.query(
     `UPDATE files
      SET
        status = 'active',
-       chunk_count = $2,
-       bytes_received = $3,
        uploaded_at = COALESCE(uploaded_at, NOW()),
        expires_at = COALESCE(expires_at, NOW() + INTERVAL '24 hours'),
        last_cleanup_error = NULL,
        updated_at = NOW()
      WHERE token = $1
-       AND status IN ('uploading', 'processing')
+       AND status IN ('uploading', 'processing', 'active')
      RETURNING ${FILE_COLUMNS}`,
-    [token, summary.chunkCount, summary.totalBytes]
-  )
-  if (!rows[0]) return getFileByToken(token)
-  return mapFile(rows[0] as FileRow)
-}
-
-export async function markUploadFailed(token: string) {
-  const sql = getSql()
-  await sql.query(
-    `UPDATE files
-     SET status = 'failed', updated_at = NOW()
-     WHERE token = $1
-       AND status IN ('uploading', 'processing')`,
     [token]
   )
+  if (!rows[0]) return null
+  return mapFile(rows[0] as FileRow)
 }
 
 export async function deleteIncompleteUpload(token: string) {
   const sql = getSql()
-  await sql.query(
+  const rows = await sql.query(
     `DELETE FROM files
      WHERE token = $1
-       AND status IN ('uploading', 'processing', 'failed')`,
+       AND status IN ('uploading', 'processing', 'failed')
+     RETURNING ${FILE_COLUMNS}`,
     [token]
   )
+  return rows[0] ? mapFile(rows[0] as FileRow) : null
 }
 
 export async function recordDownload(token: string) {
@@ -314,11 +296,7 @@ export async function recordCleanupRun(stats: {
        failed,
        error
      )
-     VALUES (
-       NOW(),
-       NOW(),
-       $1, $2, $3, $4, $5, $6
-     )`,
+     VALUES (NOW(), NOW(), $1, $2, $3, $4, $5, $6)`,
     [
       stats.scanned,
       stats.deletedObjects,

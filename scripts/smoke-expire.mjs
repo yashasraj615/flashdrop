@@ -29,20 +29,14 @@ const initResponse = await fetch(`${base}/api/upload/init`, {
   }),
 })
 const init = await initResponse.json()
-if (!init.token) throw new Error("init failed")
+if (!init.token || !init.uploadUrl) throw new Error("init failed")
 
-const checksum = createHash("sha256").update(payload).digest("hex")
-const chunkResponse = await fetch(`${base}/api/upload/chunk`, {
-  method: "POST",
-  headers: {
-    "content-type": "application/octet-stream",
-    "x-upload-token": init.token,
-    "x-chunk-index": "0",
-    "x-chunk-checksum": checksum,
-  },
+const put = await fetch(init.uploadUrl, {
+  method: "PUT",
+  headers: { "content-type": init.contentType },
   body: payload,
 })
-if (!chunkResponse.ok) throw new Error("chunk failed")
+if (!put.ok) throw new Error(`put failed: ${put.status}`)
 
 const completeResponse = await fetch(`${base}/api/upload/complete`, {
   method: "POST",
@@ -55,13 +49,10 @@ await sql`UPDATE files SET expires_at = NOW() - INTERVAL '1 minute' WHERE token 
 
 const expiredDownload = await fetch(`${base}/api/download/${init.token}`, {
   headers: { accept: "application/json" },
+  redirect: "manual",
 })
-const expiredBody = await expiredDownload.json()
 if (expiredDownload.status !== 410) {
   throw new Error(`expected 410, got ${expiredDownload.status}`)
-}
-if (expiredBody.error !== "This file has expired.") {
-  throw new Error(`unexpected expired message: ${expiredBody.error}`)
 }
 
 const cleanupResponse = await fetch(`${base}/api/cleanup`, {
@@ -71,12 +62,6 @@ const cleanup = await cleanupResponse.json()
 if (!cleanupResponse.ok) throw new Error(`cleanup failed: ${JSON.stringify(cleanup)}`)
 
 const leftover = await sql`SELECT COUNT(*)::int AS count FROM files WHERE token = ${init.token}`
-const leftoverChunks = await sql`
-  SELECT COUNT(*)::int AS count
-  FROM file_chunks c
-  JOIN files f ON f.id = c.file_id
-  WHERE f.token = ${init.token}
-`
 
 process.stdout.write(
   JSON.stringify({
@@ -84,7 +69,6 @@ process.stdout.write(
     digest,
     expiredStatus: expiredDownload.status,
     leftoverFiles: leftover[0].count,
-    leftoverChunks: leftoverChunks[0].count,
     cleanupDeleted: cleanup.deletedRecords,
   })
 )

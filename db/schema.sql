@@ -1,7 +1,5 @@
--- Flashdrop schema: metadata + chunked BYTEA payloads in Neon PostgreSQL.
--- Files are stored as 512 KiB BYTEA rows rather than a single 1 GB value.
--- That stays under the Neon HTTP driver 64 MB query limit and avoids
--- storing one oversized TOAST value on the pageserver.
+-- Flashdrop schema: Neon PostgreSQL metadata + Neon Object Storage binaries.
+-- File bytes live in the private `temporary-files` bucket, not in BYTEA.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -22,11 +20,11 @@ END $$;
 CREATE TABLE IF NOT EXISTS files (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   token TEXT NOT NULL UNIQUE,
+  object_key TEXT NOT NULL UNIQUE,
   original_filename TEXT NOT NULL,
   mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
   file_size BIGINT NOT NULL CHECK (file_size >= 0 AND file_size <= 1073741824),
-  chunk_count INTEGER,
-  bytes_received BIGINT NOT NULL DEFAULT 0,
+  multipart_upload_id TEXT,
   status file_status NOT NULL DEFAULT 'uploading',
   uploaded_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ,
@@ -40,26 +38,14 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS files_token_idx ON files (token);
+CREATE UNIQUE INDEX IF NOT EXISTS files_object_key_idx ON files (object_key);
 CREATE INDEX IF NOT EXISTS files_expires_status_idx
   ON files (expires_at, status)
   WHERE status NOT IN ('deleted', 'failed');
 CREATE INDEX IF NOT EXISTS files_status_idx ON files (status);
 CREATE INDEX IF NOT EXISTS files_cleanup_idx
   ON files (status, expires_at)
-  WHERE status IN ('active', 'expired', 'deleting', 'uploading');
-
-CREATE TABLE IF NOT EXISTS file_chunks (
-  file_id UUID NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
-  byte_offset BIGINT NOT NULL CHECK (byte_offset >= 0),
-  byte_length INTEGER NOT NULL CHECK (byte_length > 0 AND byte_length <= 1048576),
-  checksum TEXT NOT NULL,
-  data BYTEA NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (file_id, chunk_index)
-);
-
-CREATE INDEX IF NOT EXISTS file_chunks_file_id_idx ON file_chunks (file_id);
+  WHERE status IN ('active', 'expired', 'deleting', 'uploading', 'processing', 'failed');
 
 CREATE TABLE IF NOT EXISTS rate_limits (
   key TEXT PRIMARY KEY,

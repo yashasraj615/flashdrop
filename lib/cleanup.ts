@@ -1,6 +1,9 @@
 import "server-only"
 
-import { deleteChunks } from "@/lib/chunks"
+import {
+  abortMultipartUpload,
+  deleteObject,
+} from "@/lib/storage"
 import {
   deleteFileRecord,
   listCleanupCandidates,
@@ -20,12 +23,19 @@ export type CleanupResult = {
   failed: number
 }
 
+async function removeStoredObject(file: TransferFile) {
+  if (file.multipartUploadId) {
+    await abortMultipartUpload(file.objectKey, file.multipartUploadId).catch(() => undefined)
+  }
+  await deleteObject(file.objectKey)
+}
+
 async function cleanupOne(file: TransferFile): Promise<"deleted" | "retried" | "failed"> {
   const target = await markDeleting(file.id)
   const current = target ?? file
 
   try {
-    await deleteChunks(current.id)
+    await removeStoredObject(current)
     await deleteFileRecord(current.id)
     logEvent("cleanup.file_deleted", { fileId: current.id })
     return "deleted"
