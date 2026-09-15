@@ -28,17 +28,17 @@ export function SiteHeader() {
   return (
     <header className="flex items-center justify-between px-1 py-4">
       <Logo />
-      <p className="text-xs text-muted-foreground">Available for 24 hours</p>
+      <p className="hidden text-xs text-muted-foreground sm:block">Available for 24 hours</p>
     </header>
   )
 }
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="atmosphere relative min-h-dvh overflow-hidden">
-      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-16 sm:px-6 lg:max-w-3xl">
+    <div className="atmosphere relative flex min-h-dvh flex-col items-center overflow-x-hidden">
+      <div className="flex w-full max-w-xl flex-col px-4 pb-16 sm:px-6 lg:max-w-2xl">
         <SiteHeader />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main className="flex w-full flex-1 flex-col">{children}</main>
       </div>
     </div>
   )
