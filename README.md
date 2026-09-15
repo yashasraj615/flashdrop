@@ -36,6 +36,20 @@ Required variables:
 | `NEXT_PUBLIC_APP_URL` | Public origin for share links |
 | `CRON_SECRET` | Bearer token for cleanup |
 
+## Production (Vercel)
+
+The GitHub repository is ready at `https://github.com/yashasraj615/flashdrop`.
+
+Vercel CLI/MCP in this environment was not logged in to a team, so production env vars and the Blob store still need to be attached from your Vercel account:
+
+1. `npx vercel login`
+2. Import the GitHub repo (or `npx vercel --prod` from this directory).
+3. Create a Blob store for the project (`npx vercel blob store add`).
+4. Set `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and `NEXT_PUBLIC_APP_URL` for Production and Preview.
+5. Redeploy. Vercel Cron will call `/api/cleanup` daily at 04:00 UTC.
+
+Hobby Cron only supports one run per day. Downloads are still blocked the moment `expires_at` is reached, even if the object has not been deleted yet.
+
 Apply schema if you are not using the provisioned Flashdrop database:
 
 ```bash
