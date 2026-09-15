@@ -3,7 +3,7 @@
 import { motion, useReducedMotion } from "motion/react"
 import { AlertCircleIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { MagneticButton } from "@/components/magnetic-button"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -23,7 +23,7 @@ export function Notice({
     <motion.div
       initial={reduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl border border-amber-200/20 bg-amber-100/8 px-4 py-3 text-left"
+      className="rounded-2xl border border-amber-200/16 bg-[oklch(0.28_0.04_75_/_0.28)] px-4 py-3 text-left backdrop-blur-md"
     >
       <div className="flex items-start gap-3">
         <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-200/80" aria-hidden="true" />
@@ -31,9 +31,9 @@ export function Notice({
           <p className="text-sm font-medium text-foreground">{title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           {actionLabel && onAction ? (
-            <Button variant="ghost" size="sm" className="mt-2 h-8 px-2" onClick={onAction}>
+            <MagneticButton variant="ghost" size="sm" className="mt-2 h-8 px-2" onClick={onAction}>
               {actionLabel}
-            </Button>
+            </MagneticButton>
           ) : null}
         </div>
       </div>

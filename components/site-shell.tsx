@@ -1,6 +1,26 @@
 import Link from "next/link"
 
 import { APP_NAME } from "@/lib/constants"
+import { cn } from "@/lib/utils"
+
+export function BrandMark({
+  className,
+  size = 36,
+}: {
+  className?: string
+  size?: number
+}) {
+  return (
+    <img
+      src="/icons/icon-192.png"
+      alt=""
+      width={size}
+      height={size}
+      className={cn("rounded-[22%] object-cover", className)}
+      draggable={false}
+    />
+  )
+}
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -9,14 +29,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       className="inline-flex items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={`${APP_NAME} home`}
     >
-      <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/25">
-        <svg viewBox="0 0 16 16" className="size-4 text-primary" aria-hidden="true">
-          <path
-            d="M9.3 1.8 4.2 8h3.6L6.6 14.2 11.8 8H8.2L9.3 1.8Z"
-            fill="currentColor"
-          />
-        </svg>
-      </span>
+      <BrandMark className="size-8 sm:size-9" size={72} />
       {compact ? null : (
         <span className="font-heading text-[15px] tracking-tight">{APP_NAME}</span>
       )}

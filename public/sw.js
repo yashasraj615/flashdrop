@@ -1,15 +1,22 @@
-const SHELL = ["/", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png"]
+const SHELL = [
+  "/",
+  "/favicon.ico",
+  "/apple-touch-icon.png",
+  "/icons/favicon-32.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("flashdrop-shell-v1").then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open("flashdrop-shell-v2").then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
   )
 })
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== "flashdrop-shell-v1").map((key) => caches.delete(key)))
+      Promise.all(keys.filter((key) => key !== "flashdrop-shell-v2").map((key) => caches.delete(key)))
     ).then(() => self.clients.claim())
   )
 })
@@ -35,7 +42,7 @@ self.addEventListener("fetch", (event) => {
       .then((response) => {
         if (response.ok && request.destination !== "document") {
           const copy = response.clone()
-          caches.open("flashdrop-shell-v1").then((cache) => cache.put(request, copy)).catch(() => undefined)
+          caches.open("flashdrop-shell-v2").then((cache) => cache.put(request, copy)).catch(() => undefined)
         }
         return response
       })

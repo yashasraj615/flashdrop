@@ -18,7 +18,9 @@ import { Countdown } from "@/components/countdown"
 import { FileGlyph } from "@/components/file-glyph"
 import { Notice, QuotaHint } from "@/components/notice"
 import { downloadQrPng, QrImage } from "@/components/qr-image"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { MagneticButton, MagneticLink } from "@/components/magnetic-button"
+import { BrandMark } from "@/components/site-shell"
+import { useAtmosphere } from "@/components/atmosphere"
 import {
   Dialog,
   DialogContent,
@@ -45,7 +47,7 @@ import { remainingBytes } from "@/lib/quota"
 import { readHashSecret, readManageToken, storeManageToken, transferShareUrl } from "@/lib/share-secret"
 import { cn } from "@/lib/utils"
 
-type Phase = "loading" | "create" | "uploading" | "ready" | "expired" | "invalid" | "missing-key"
+type Phase = "loading" | "create" | "uploading" | "completing" | "ready" | "expired" | "invalid" | "missing-key"
 
 type PublicFile = DownloadableFile & { status?: string }
 type PublicTransfer = {
@@ -67,6 +69,7 @@ function selectionSize(files: File[]) {
 export function TransferExperience({ token }: { token?: string }) {
   const router = useRouter()
   const reduceMotion = useReducedMotion()
+  const { setScene, setProgress: setVisualProgress } = useAtmosphere()
   const inputRef = useRef<HTMLInputElement>(null)
   const addInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -120,6 +123,15 @@ export function TransferExperience({ token }: { token?: string }) {
     }
     setPhase("ready")
   }, [])
+
+  useEffect(() => {
+    if (phase === "uploading") setScene("uploading")
+    else if (phase === "completing") setScene("completing")
+    else if (phase === "ready") setScene("ready")
+    else if (phase === "create" || phase === "expired" || phase === "invalid" || phase === "missing-key") {
+      setScene("idle")
+    }
+  }, [phase, setScene])
 
   useEffect(() => {
     setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function")
@@ -198,18 +210,24 @@ export function TransferExperience({ token }: { token?: string }) {
         signal: abort.signal,
         onProgress: (loaded, total) => {
           const elapsed = (Date.now() - startedAtRef.current) / 1000
+          const percentage = total > 0 ? Math.min(99, (loaded / total) * 100) : 0
           setProgress({
             loaded,
             total,
-            percentage: total > 0 ? Math.min(99, (loaded / total) * 100) : 0,
+            percentage,
             speed: elapsed > 0 ? loaded / elapsed : 0,
           })
+          setVisualProgress(percentage)
           if (loaded / total > 0.92) setStatusText("Almost there")
         },
       })
 
       setStatusText("Upload complete")
+      setProgress((current) => ({ ...current, percentage: 100, loaded: current.total }))
+      setVisualProgress(100)
       setSelected([])
+      setPhase("completing")
+      await new Promise((resolve) => window.setTimeout(resolve, reduceMotion ? 160 : 900))
       if (!existing) {
         router.replace(`/t/${created.token}#${secret}`)
       }
@@ -358,8 +376,8 @@ export function TransferExperience({ token }: { token?: string }) {
   if (phase === "loading") {
     return (
       <GlassCard>
-        <div className="flex min-h-40 items-center justify-center">
-          <Spinner className="size-6" />
+        <div className="flex min-h-40 flex-col items-center justify-center gap-3">
+          <BrandMark className="size-12 motion-safe:animate-pulse" size={96} />
           <span className="sr-only">Loading transfer</span>
         </div>
       </GlassCard>
@@ -372,7 +390,7 @@ export function TransferExperience({ token }: { token?: string }) {
         <StatusBlock
           title="This transfer has expired"
           description="Files are automatically removed after 24 hours."
-          action="Upload a new file"
+          action="Create new transfer"
           href="/"
         />
       </GlassCard>
@@ -405,26 +423,36 @@ export function TransferExperience({ token }: { token?: string }) {
     )
   }
 
-  if (phase === "uploading") {
+  if (phase === "uploading" || phase === "completing") {
     const remainingTime = progress.speed > 0 ? (progress.total - progress.loaded) / progress.speed : 0
+    const complete = phase === "completing"
     return (
       <GlassCard>
-        <div className="space-y-5">
-          <div>
-            <p className="text-sm text-white/55">{statusText}</p>
-            <p className="mt-2 font-heading text-3xl tabular-nums tracking-tight">
-              {Math.round(progress.percentage)}%
-            </p>
-          </div>
-          <Progress value={progress.percentage} />
-          <p className="text-sm text-white/55">
-            {formatBytes(progress.loaded)} of {formatBytes(progress.total)}
-            {progress.speed > 0 ? ` · ${formatSpeed(progress.speed)} · ${formatEta(remainingTime)} left` : ""}
+        <div className="space-y-5 text-center">
+          <p className="text-xs tracking-[0.22em] text-primary/80 uppercase">
+            {complete ? "Arriving" : "In transit"}
           </p>
-          <Button variant="ghost" className="h-11 w-full" onClick={cancelUpload}>
-            <XIcon data-icon="inline-start" />
-            Cancel
-          </Button>
+          <p className="font-heading text-4xl tabular-nums tracking-tight sm:text-5xl">
+            {complete ? 100 : Math.round(progress.percentage)}%
+          </p>
+          <p className="text-sm text-white/55">
+            {complete
+              ? "The files have reached their destination."
+              : statusText}
+          </p>
+          <Progress value={complete ? 100 : progress.percentage} />
+          {complete ? null : (
+            <p className="text-sm text-white/55">
+              {formatBytes(progress.loaded)} of {formatBytes(progress.total)}
+              {progress.speed > 0 ? ` · ${formatSpeed(progress.speed)} · ${formatEta(remainingTime)} left` : ""}
+            </p>
+          )}
+          {complete ? null : (
+            <MagneticButton variant="ghost" className="h-11 w-full" onClick={cancelUpload}>
+              <XIcon data-icon="inline-start" />
+              Cancel
+            </MagneticButton>
+          )}
         </div>
       </GlassCard>
     )
@@ -470,35 +498,35 @@ export function TransferExperience({ token }: { token?: string }) {
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {transfer.files.length > 1 ? (
-              <Button className="h-12" onClick={downloadAll} disabled={downloadingId !== null}>
+              <MagneticButton className="h-12" onClick={downloadAll} disabled={downloadingId !== null}>
                 {downloadingId === "all" ? <Spinner /> : <DownloadIcon data-icon="inline-start" />}
                 Download all
-              </Button>
+              </MagneticButton>
             ) : (
-              <Button className="h-12" onClick={() => transfer.files[0] && downloadFile(transfer.files[0])} disabled={!transfer.files[0] || downloadingId !== null}>
+              <MagneticButton className="h-12" onClick={() => transfer.files[0] && downloadFile(transfer.files[0])} disabled={!transfer.files[0] || downloadingId !== null}>
                 {downloadingId && downloadingId !== "all" ? <Spinner /> : <DownloadIcon data-icon="inline-start" />}
                 Download file
-              </Button>
+              </MagneticButton>
             )}
-            <Button className="h-12" variant="secondary" onClick={copyLink}>
+            <MagneticButton className="h-12" variant="secondary" onClick={copyLink}>
               {copied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
               {copied ? "Link copied" : "Copy link"}
-            </Button>
+            </MagneticButton>
             {canShare ? (
-              <Button className="h-12" variant="secondary" onClick={share}>
+              <MagneticButton className="h-12" variant="secondary" onClick={share}>
                 <Share2Icon data-icon="inline-start" />
                 Share
-              </Button>
+              </MagneticButton>
             ) : null}
-            <Button className="h-12" variant="secondary" onClick={() => setQrOpen(true)}>
+            <MagneticButton className="h-12" variant="secondary" onClick={() => setQrOpen(true)}>
               <QrCodeIcon data-icon="inline-start" />
               Show QR code
-            </Button>
+            </MagneticButton>
             {isOwner ? (
-              <Button className="h-12" variant="outline" onClick={() => addInputRef.current?.click()}>
+              <MagneticButton className="h-12" variant="outline" onClick={() => addInputRef.current?.click()}>
                 <PlusIcon data-icon="inline-start" />
                 Add files
-              </Button>
+              </MagneticButton>
             ) : null}
           </div>
 
@@ -514,21 +542,21 @@ export function TransferExperience({ token }: { token?: string }) {
           />
 
           <Dialog open={qrOpen} onOpenChange={setQrOpen}>
-            <DialogContent className="border-white/10 bg-[#12141f]/90 sm:max-w-sm">
+            <DialogContent className="glass-panel border-white/12 bg-[#10131c]/72 sm:max-w-sm">
               <DialogHeader>
                 <DialogTitle>Scan to open this transfer</DialogTitle>
                 <DialogDescription>
                   This code includes the decryption key. Keep it as private as the link.
                 </DialogDescription>
               </DialogHeader>
-              {shareLink ? (
+              {qrOpen && shareLink ? (
                 <div className="flex justify-center rounded-3xl bg-white p-4">
                   <QrImage value={shareLink} size={260} className="rounded-xl" />
                 </div>
               ) : null}
-              <Button variant="outline" className="h-11" onClick={() => shareLink && downloadQrPng(shareLink, "flashdrop-qr.png")}>
+              <MagneticButton variant="outline" className="h-11" onClick={() => shareLink && downloadQrPng(shareLink, "flashdrop-qr.png")}>
                 Save QR
-              </Button>
+              </MagneticButton>
             </DialogContent>
           </Dialog>
         </div>
@@ -570,9 +598,9 @@ export function TransferExperience({ token }: { token?: string }) {
           <p className="mt-4 text-lg font-medium">Drop your files here</p>
           <p className="mt-1 text-sm text-white/55">or choose files from this device</p>
           <p className="mt-4 text-xs tracking-wide text-white/40 uppercase">Up to 1 GB total</p>
-          <Button className="mt-6 h-12 px-8" onClick={() => inputRef.current?.click()}>
+          <MagneticButton className="mt-6 h-12 px-8" onClick={() => inputRef.current?.click()}>
             Choose files
-          </Button>
+          </MagneticButton>
         </motion.div>
 
         <div className="mt-5">
@@ -604,12 +632,12 @@ export function TransferExperience({ token }: { token?: string }) {
               chunkSize: 0,
             }))} />
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="h-12 flex-1" onClick={() => startUpload(selected)}>
+              <MagneticButton className="h-12 flex-1" onClick={() => startUpload(selected)}>
                 Upload {selected.length} {selected.length === 1 ? "file" : "files"}
-              </Button>
-              <Button className="h-12" variant="ghost" onClick={() => setSelected([])}>
+              </MagneticButton>
+              <MagneticButton className="h-12" variant="ghost" onClick={() => setSelected([])}>
                 Clear
-              </Button>
+              </MagneticButton>
             </div>
           </div>
         ) : null}
@@ -620,7 +648,7 @@ export function TransferExperience({ token }: { token?: string }) {
 
 function GlassCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="glass-panel w-full rounded-[32px] p-5 sm:p-8">
+    <div data-glass-panel className="glass-panel w-full rounded-[32px] p-5 sm:p-8">
       {children}
     </div>
   )
@@ -639,11 +667,12 @@ function StatusBlock({
 }) {
   return (
     <div className="space-y-4 text-center">
+      <BrandMark className="mx-auto size-12" size={96} />
       <h1 className="font-heading text-3xl tracking-tight">{title}</h1>
       <p className="text-sm text-white/60">{description}</p>
-      <a href={href} className={cn(buttonVariants(), "inline-flex h-12 w-full sm:w-auto")}>
+      <MagneticLink href={href} className="h-12 w-full sm:w-auto">
         {action}
-      </a>
+      </MagneticLink>
     </div>
   )
 }
@@ -671,7 +700,7 @@ function FileRows({
               </p>
             </div>
             {onDownload ? (
-              <Button
+              <MagneticButton
                 size="sm"
                 variant="ghost"
                 className="h-9 shrink-0"
@@ -679,7 +708,7 @@ function FileRows({
                 disabled={downloadingId !== null}
               >
                 {downloadingId === file.id ? <Spinner /> : "Download"}
-              </Button>
+              </MagneticButton>
             ) : null}
           </li>
         )
