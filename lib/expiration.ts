@@ -37,8 +37,10 @@ export function isDownloadable(params: {
 }
 
 export function shouldCleanup(record: CleanupCandidate, now: Date): boolean {
-  if (record.status === "deleted" || record.status === "failed") return false
-  if (record.status === "deleting" || record.status === "expired") return true
+  if (record.status === "deleted") return false
+  if (record.status === "failed" || record.status === "deleting" || record.status === "expired") {
+    return true
+  }
   if (record.status === "active" && isPastExpiration(now, record.expiresAt)) {
     return true
   }

@@ -57,6 +57,12 @@ describe("expiration", () => {
     const now = new Date("2026-09-17T00:00:00.000Z")
     expect(
       shouldCleanup(
+        { status: "failed", expiresAt: null, createdAt: "2026-09-15T00:00:00.000Z" },
+        now
+      )
+    ).toBe(true)
+    expect(
+      shouldCleanup(
         { status: "deleted", expiresAt: "2026-09-16T00:00:00.000Z", createdAt: "2026-09-15T00:00:00.000Z" },
         now
       )

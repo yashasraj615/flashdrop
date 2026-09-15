@@ -1,13 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo } from "react"
 import { DownloadIcon } from "lucide-react"
-import { toast } from "sonner"
 
 import { Countdown } from "@/components/countdown"
 import { FileGlyph } from "@/components/file-glyph"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
+import { buttonVariants } from "@/components/ui/button"
 import { fileKind, kindLabel } from "@/lib/file-kind"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -25,35 +23,19 @@ export function DownloadView({
   size: number
   expiresAt: string
 }) {
-  const [busy, setBusy] = useState(false)
   const kind = useMemo(() => fileKind(filename, mimeType), [filename, mimeType])
+  const href = `/api/download/${token}`
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        void download()
+        window.location.assign(href)
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [token])
-
-  async function download() {
-    setBusy(true)
-    try {
-      const response = await fetch(`/api/download/${token}`)
-      const data = (await response.json()) as { url?: string; error?: string }
-      if (!response.ok || !data.url) {
-        throw new Error(data.error || "We couldn't prepare your file. Please try again.")
-      }
-      window.location.assign(data.url)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Download failed.")
-    } finally {
-      setBusy(false)
-    }
-  }
+  }, [href])
 
   return (
     <div className="glass-panel mx-auto w-full max-w-lg rounded-[28px] p-6 sm:p-8">
@@ -68,10 +50,10 @@ export function DownloadView({
         <p className="text-sm text-primary">
           Available for <Countdown expiresAt={expiresAt} />
         </p>
-        <Button className="h-12 w-full max-w-xs text-base" onClick={download} disabled={busy}>
-          {busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
-          {busy ? "Preparing download" : "Download File"}
-        </Button>
+        <a href={href} className={cn(buttonVariants(), "h-12 w-full max-w-xs text-base")}>
+          <DownloadIcon data-icon="inline-start" />
+          Download File
+        </a>
       </div>
     </div>
   )
@@ -89,7 +71,7 @@ export function TransferUnavailable({
       <h1 className="font-heading text-2xl tracking-tight">{title}</h1>
       <p className="mt-3 text-sm text-muted-foreground">{description}</p>
       <a href="/" className={cn(buttonVariants(), "mt-6 inline-flex h-11")}>
-        Send a file
+        Upload a new file
       </a>
     </div>
   )

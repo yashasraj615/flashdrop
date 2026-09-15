@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE_BYTES, RATE_LIMITS } from "@/lib/constants"
+import { CHUNK_SIZE_BYTES, MAX_FILE_SIZE_BYTES, RATE_LIMITS, expectedChunkCount } from "@/lib/constants"
 import { UploadValidationError, createUploadRecord } from "@/lib/files"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logError, logEvent } from "@/lib/logger"
@@ -45,6 +45,8 @@ export async function POST(request: Request) {
       filename: file.originalFilename,
       mimeType: file.mimeType,
       size: file.fileSize,
+      chunkSize: CHUNK_SIZE_BYTES,
+      chunkCount: expectedChunkCount(file.fileSize),
     })
   } catch (error) {
     if (error instanceof UploadValidationError) {

@@ -59,39 +59,13 @@ export default async function DownloadPage({ params }: PageProps) {
     )
   }
 
-  if (!file) {
-    return (
-      <SiteShell>
-        <div className="pt-10">
-          <TransferUnavailable
-            title="This transfer link isn't valid."
-            description="The file may have been removed, or the link is incorrect."
-          />
-        </div>
-      </SiteShell>
-    )
-  }
-
-  const status = publicFileStatus(file)
-  if (status === "expired") {
+  if (!file || publicFileStatus(file) !== "active" || !file.expiresAt) {
     return (
       <SiteShell>
         <div className="pt-10">
           <TransferUnavailable
             title="This file has expired."
             description="Files are available for 24 hours after upload."
-          />
-        </div>
-      </SiteShell>
-    )
-  }
-  if (status !== "active" || !file.expiresAt) {
-    return (
-      <SiteShell>
-        <div className="pt-10">
-          <TransferUnavailable
-            title="This file is no longer available."
-            description="The transfer may have been deleted or is still being prepared."
           />
         </div>
       </SiteShell>

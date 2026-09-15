@@ -11,6 +11,13 @@ export function sanitizeFilename(input: string | null | undefined): string {
   return truncated || "file"
 }
 
+export function contentDisposition(filename: string): string {
+  const safe = sanitizeFilename(filename)
+  const ascii = safe.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "\\\"")
+  const encoded = encodeURIComponent(safe).replace(/['()]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
+}
+
 export function storageContentType(mimeType: string | null | undefined): string {
   const mime = (mimeType || "application/octet-stream").split(";")[0]!.trim().toLowerCase()
   if (

@@ -115,7 +115,7 @@ export function SharePanel({
           Show QR
         </Button>
         <a
-          href={transfer.shareUrl}
+          href={`/api/download/${transfer.token}`}
           className={cn(buttonVariants({ variant: "outline" }), "h-11")}
         >
           <DownloadIcon data-icon="inline-start" />

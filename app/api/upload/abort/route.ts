@@ -1,6 +1,5 @@
-import { deleteStoredBlob } from "@/lib/blob"
 import { RATE_LIMITS } from "@/lib/constants"
-import { getFileByToken, markUploadFailed } from "@/lib/files"
+import { deleteIncompleteUpload } from "@/lib/files"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logEvent } from "@/lib/logger"
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit"
@@ -15,17 +14,13 @@ export async function POST(request: Request) {
       ...RATE_LIMITS.upload,
     })
 
-    const body = (await request.json()) as { token?: string; url?: string }
+    const body = (await request.json()) as { token?: string }
     if (!body.token || !isPlausibleToken(body.token)) {
       return jsonError("This transfer isn't valid.", 400)
     }
 
-    const file = await getFileByToken(body.token)
-    if (file?.storageUrl || body.url) {
-      await deleteStoredBlob(body.url ?? file?.storageUrl).catch(() => undefined)
-    }
-    await markUploadFailed(body.token)
-    logEvent("upload.failed", { token: tokenPreview(body.token) })
+    await deleteIncompleteUpload(body.token)
+    logEvent("upload.aborted", { token: tokenPreview(body.token) })
     return Response.json({ ok: true })
   } catch (error) {
     return handleRouteError(error)

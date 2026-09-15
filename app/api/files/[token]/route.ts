@@ -7,6 +7,8 @@ import { isPlausibleToken, tokenPreview } from "@/lib/tokens"
 
 export const runtime = "nodejs"
 
+const EXPIRED_MESSAGE = "This file has expired."
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ token: string }> }
@@ -24,7 +26,7 @@ export async function GET(
 
     const file = await getFileByToken(token)
     if (!file) {
-      return jsonError("This transfer link isn't valid.", 404, { status: "invalid" })
+      return jsonError(EXPIRED_MESSAGE, 410, { status: "expired" })
     }
 
     const status = publicFileStatus(file)
@@ -33,14 +35,8 @@ export async function GET(
       logEvent("download.expired", { token: tokenPreview(token) })
     }
 
-    if (status === "expired") {
-      return jsonError("This file has expired.", 410, { status: "expired" })
-    }
-    if (status === "deleted") {
-      return jsonError("This file is no longer available.", 410, { status: "deleted" })
-    }
     if (status !== "active") {
-      return jsonError("This file is no longer available.", 409, { status })
+      return jsonError(EXPIRED_MESSAGE, 410, { status: "expired" })
     }
 
     return Response.json({

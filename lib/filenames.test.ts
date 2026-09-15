@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { sanitizeFilename, storageContentType } from "@/lib/filenames"
+import { contentDisposition, sanitizeFilename, storageContentType } from "@/lib/filenames"
 
 describe("sanitizeFilename", () => {
   it("keeps a normal filename", () => {
@@ -40,5 +40,14 @@ describe("storageContentType", () => {
     expect(storageContentType("application/pdf")).toBe("application/pdf")
     expect(storageContentType("application/x-unknown")).toBe("application/x-unknown")
     expect(storageContentType("")).toBe("application/octet-stream")
+  })
+})
+
+describe("contentDisposition", () => {
+  it("forces attachment downloads and encodes the filename", () => {
+    const header = contentDisposition('report "final".pdf')
+    expect(header).toContain("attachment;")
+    expect(header).toContain("filename=")
+    expect(header).toContain("filename*=UTF-8''")
   })
 })

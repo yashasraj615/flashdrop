@@ -1,9 +1,9 @@
 import "server-only"
 
-import { deleteStoredBlob } from "@/lib/blob"
+import { deleteChunks } from "@/lib/chunks"
 import {
+  deleteFileRecord,
   listCleanupCandidates,
-  markDeleted,
   markDeleting,
   recordCleanupFailure,
   recordCleanupRun,
@@ -25,17 +25,13 @@ async function cleanupOne(file: TransferFile): Promise<"deleted" | "retried" | "
   const current = target ?? file
 
   try {
-    const result = await deleteStoredBlob(current.storageUrl ?? current.storageKey)
-    await markDeleted(current.id)
-    logEvent("cleanup.file_deleted", {
-      fileId: current.id,
-      hadObject: Boolean(current.storageUrl || current.storageKey),
-      objectMissing: result.missing,
-    })
+    await deleteChunks(current.id)
+    await deleteFileRecord(current.id)
+    logEvent("cleanup.file_deleted", { fileId: current.id })
     return "deleted"
   } catch (error) {
     const message = error instanceof Error ? error.message : "Cleanup failed"
-    await recordCleanupFailure(current.id, message)
+    await recordCleanupFailure(current.id, message).catch(() => undefined)
     logError("cleanup.file_failed", error, { fileId: current.id })
     return current.cleanupAttempts > 0 ? "retried" : "failed"
   }
@@ -74,7 +70,10 @@ export async function runCleanup(): Promise<CleanupResult> {
     return stats
   } catch (error) {
     logError("cleanup.failed", error, stats)
-    await recordCleanupRun({ ...stats, error: error instanceof Error ? error.message : "Cleanup failed" })
+    await recordCleanupRun({
+      ...stats,
+      error: error instanceof Error ? error.message : "Cleanup failed",
+    })
     throw error
   }
 }

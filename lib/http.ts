@@ -4,6 +4,16 @@ export function jsonError(message: string, status: number, extra?: Record<string
   return Response.json({ error: message, ...extra }, { status })
 }
 
+export function wantsHtml(request: Request) {
+  const accept = request.headers.get("accept") ?? ""
+  const mode = request.headers.get("sec-fetch-mode")
+  return mode === "navigate" || accept.includes("text/html")
+}
+
+export function redirectToDownloadPage(request: Request, token: string) {
+  return Response.redirect(new URL(`/download/${token}`, request.url), 303)
+}
+
 export function handleRouteError(error: unknown) {
   if (error instanceof RateLimitError) {
     return jsonError(error.message, 429, { retryAfterSeconds: error.retryAfterSeconds })
