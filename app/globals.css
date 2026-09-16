@@ -195,10 +195,12 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 1px solid oklch(0.84 0.008 220 / 0.82);
-  background: oklch(0.78 0.01 220 / 0.34);
-  box-shadow: 0 0 16px oklch(0.8 0.01 220 / 0.28);
-  backdrop-filter: blur(8px);
+  border: 1px solid oklch(0.84 0.012 210 / 0.86);
+  background: oklch(0.8 0.01 210 / 0.28);
+  box-shadow: 0 0 14px oklch(0.82 0.02 200 / 0.28);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  filter: none;
 }
 
 .flashdrop-ghost-envelope {
@@ -206,17 +208,16 @@
   left: 0;
   top: 0;
   pointer-events: none;
-  border: 1px solid oklch(0.86 0.01 220 / 0.55);
-  background: oklch(0.8 0.01 220 / 0.1);
+  background: transparent;
+  background-image: none;
+  border: 1.5px solid oklch(0.84 0.04 192 / 0.72);
   box-shadow:
-    0 0 0 1px oklch(1 0 0 / 0.06) inset,
-    0 8px 22px oklch(0.2 0.02 220 / 0.18);
-  backdrop-filter: blur(10px);
+    0 0 0 1px oklch(1 0 0 / 0.1),
+    0 0 16px oklch(0.72 0.06 192 / 0.28);
   opacity: 0;
-}
-
-.flashdrop-brand-mark {
-  filter: hue-rotate(-78deg) saturate(1.12) brightness(1.04);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  filter: none;
 }
 
 html.has-ghost-cursor, html.has-ghost-cursor * {

@@ -93,36 +93,45 @@ export function GhostCursor() {
       const hover = hoveredControl(tx, ty)
 
       if (hover) {
-        x += (hover.cx - x) * 0.55
-        y += (hover.cy - y) * 0.55
+        x = hover.cx
+        y = hover.cy
+        attached = 1
         hover.el.dataset.magnetActive = "true"
       } else {
         x += (tx - x) * 0.38
         y += (ty - y) * 0.38
+        attached += (0 - attached) * 0.42
       }
       for (const node of document.querySelectorAll("[data-magnetic]")) {
         if (node !== hover?.el) delete (node as HTMLElement).dataset.magnetActive
       }
 
-      attached += ((hover ? 1 : 0) - attached) * 0.42
-
       cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`
       cursor.style.opacity = visible ? "1" : "0"
 
       const ringScale = (1 - attached * 0.85) * (pressed ? 0.92 : 1)
-      ring.style.opacity = String(Math.max(0, 1 - attached * 1.8))
+      ring.style.opacity = hover ? "0" : "1"
       ring.style.transform = `translate(-50%, -50%) scale(${ringScale})`
 
       const targetW = hover ? hover.w + 10 : 22
       const targetH = hover ? hover.h + 10 : 22
       const targetRadius = hover ? hover.radius : 11
-      envW += (targetW - envW) * 0.48
-      envH += (targetH - envH) * 0.48
-      envRadius += (targetRadius - envRadius) * 0.48
+      if (hover) {
+        envW = targetW
+        envH = targetH
+        envRadius = targetRadius
+      } else {
+        envW += (targetW - envW) * 0.48
+        envH += (targetH - envH) * 0.48
+        envRadius += (targetRadius - envRadius) * 0.48
+      }
       envelope.style.width = `${envW}px`
       envelope.style.height = `${envH}px`
       envelope.style.borderRadius = `${envRadius}px`
-      envelope.style.opacity = hover ? "1" : String(Math.max(0, attached - 0.35) * 1.8)
+      envelope.style.background = "transparent"
+      envelope.style.backdropFilter = "none"
+      envelope.style.setProperty("-webkit-backdrop-filter", "none")
+      envelope.style.opacity = hover ? "1" : "0"
       envelope.style.transform = `translate(-50%, -50%) scale(${pressed && hover ? 0.98 : 1})`
 
       frame = requestAnimationFrame(tick)

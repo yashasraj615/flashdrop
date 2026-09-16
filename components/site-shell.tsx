@@ -16,7 +16,7 @@ export function BrandMark({
       alt=""
       width={size}
       height={size}
-      className={cn("flashdrop-brand-mark rounded-[22%] object-cover", className)}
+      className={cn("rounded-[22%] object-cover", className)}
       draggable={false}
     />
   )
