@@ -1,7 +1,5 @@
 // @ts-nocheck
 'use client';
-import { gsap } from 'gsap';
-import { Observer } from 'gsap/Observer';
 import React, { useEffect, useRef } from 'react';
 import {
  ACESFilmicToneMapping,
@@ -27,8 +25,6 @@ import {
  type WebGLRendererParameters
 } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-
-gsap.registerPlugin(Observer);
 
 interface XConfig {
  canvas?: HTMLCanvasElement;
@@ -236,8 +232,9 @@ class X {
  }
 
  #startAnimation() {
- if (this.#isVisible) return;
+ if (this.isDisposed || this.#isVisible) return;
  const animateFrame = () => {
+ if (this.isDisposed || !this.#isVisible) return;
  this.#animationFrameId = requestAnimationFrame(animateFrame);
  this.#timer.update();
  this.#animationState.delta = this.#timer.getDelta();
@@ -252,13 +249,13 @@ class X {
  }
 
  #stopAnimation() {
- if (this.#isVisible) {
  cancelAnimationFrame(this.#animationFrameId);
+ this.#animationFrameId = 0;
  this.#isVisible = false;
- }
  }
 
  #render() {
+ if (this.isDisposed) return;
  this.renderer.render(this.scene, this.camera);
  }
 
@@ -279,17 +276,19 @@ class X {
  }
 
  dispose() {
+ if (this.isDisposed) return;
+ this.isDisposed = true;
  this.#onResizeCleanup();
  this.#stopAnimation();
  this.#timer.dispose();
  this.clear();
  this.#postprocessing?.dispose();
  this.renderer.dispose();
- this.renderer.forceContextLoss();
- this.isDisposed = true;
  }
 
  #onResizeCleanup() {
+ if (this.#resizeTimer) clearTimeout(this.#resizeTimer);
+ this.#resizeTimer = undefined;
  window.removeEventListener('resize', this.#boundResize);
  this.#resizeObserver?.disconnect();
  this.#intersectionObserver?.disconnect();
@@ -459,11 +458,13 @@ class Y extends MeshPhysicalMaterial {
  void RE_Direct_Scattering(const in IncidentLight directLight, const in vec2 uv, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, inout ReflectedLight reflectedLight) {
  vec3 scatteringHalf = normalize(directLight.direction + (geometryNormal * thicknessDistortion));
  float scatteringDot = pow(saturate(dot(geometryViewDir, -scatteringHalf)), thicknessPower) * thicknessScale;
- #ifdef USE_COLOR
- vec3 scatteringIllu = (scatteringDot + thicknessAmbient) * vColor;
- #else
- vec3 scatteringIllu = (scatteringDot + thicknessAmbient) * diffuse;
- #endif
+vec3 scatterAlbedo = diffuse.rgb;
+#if defined( USE_COLOR_ALPHA )
+ scatterAlbedo *= vColor.rgb;
+#elif defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR ) || defined( USE_INSTANCING_COLOR_ALPHA ) || defined( USE_BATCHING_COLOR )
+ scatterAlbedo *= vColor.rgb;
+#endif
+ vec3 scatteringIllu = (scatteringDot + thicknessAmbient) * scatterAlbedo;
  reflectedLight.directDiffuse += scatteringIllu * thicknessAttenuation * directLight.color;
  }
 
@@ -541,35 +542,25 @@ function createPointerData(options: Partial & { domElement: HTMLElement }): Poin
  onLeave: () => {},
  ...options
  };
- if (!pointerMap.has(options.domElement)) {
  pointerMap.set(options.domElement, defaultData);
  if (!globalPointerActive) {
  document.body.addEventListener('pointermove', onPointerMove as EventListener);
  document.body.addEventListener('pointerleave', onPointerLeave as EventListener);
  document.body.addEventListener('click', onPointerClick as EventListener);
-
- document.body.addEventListener('touchstart', onTouchStart as EventListener, {
- passive: false
- });
- document.body.addEventListener('touchmove', onTouchMove as EventListener, {
- passive: false
- });
- document.body.addEventListener('touchend', onTouchEnd as EventListener, {
- passive: false
- });
- document.body.addEventListener('touchcancel', onTouchEnd as EventListener, {
- passive: false
- });
+ document.body.addEventListener('touchstart', onTouchStart as EventListener, { passive: true });
+ document.body.addEventListener('touchmove', onTouchMove as EventListener, { passive: true });
+ document.body.addEventListener('touchend', onTouchEnd as EventListener, { passive: true });
+ document.body.addEventListener('touchcancel', onTouchEnd as EventListener, { passive: true });
  globalPointerActive = true;
  }
- }
  defaultData.dispose = () => {
+ if (pointerMap.get(options.domElement) === defaultData) {
  pointerMap.delete(options.domElement);
- if (pointerMap.size === 0) {
+ }
+ if (pointerMap.size === 0 && globalPointerActive) {
  document.body.removeEventListener('pointermove', onPointerMove as EventListener);
  document.body.removeEventListener('pointerleave', onPointerLeave as EventListener);
  document.body.removeEventListener('click', onPointerClick as EventListener);
-
  document.body.removeEventListener('touchstart', onTouchStart as EventListener);
  document.body.removeEventListener('touchmove', onTouchMove as EventListener);
  document.body.removeEventListener('touchend', onTouchEnd as EventListener);
@@ -604,7 +595,6 @@ function processPointerInteraction() {
 
 function onTouchStart(e: TouchEvent) {
  if (e.touches.length > 0) {
- e.preventDefault();
  pointerPosition.set(e.touches[0].clientX, e.touches[0].clientY);
  for (const [elem, data] of pointerMap) {
  const rect = elem.getBoundingClientRect();
@@ -623,7 +613,6 @@ function onTouchStart(e: TouchEvent) {
 
 function onTouchMove(e: TouchEvent) {
  if (e.touches.length > 0) {
- e.preventDefault();
  pointerPosition.set(e.touches[0].clientX, e.touches[0].clientY);
  for (const [elem, data] of pointerMap) {
  const rect = elem.getBoundingClientRect();
@@ -703,8 +692,17 @@ class Z extends InstancedMesh {
  super(geometry, material, config.count);
  this.config = config;
  this.physics = new W(config);
+ this._roomEnv = roomEnv;
+ this._pmrem = pmrem;
  this.#setupLights();
  this.setColors(config.colors);
+ }
+
+ releaseEnv() {
+ this._roomEnv?.dispose?.();
+ this._pmrem?.dispose?.();
+ this._roomEnv = null;
+ this._pmrem = null;
  }
 
  #setupLights() {
@@ -761,7 +759,7 @@ class Z extends InstancedMesh {
  this.physics.update(deltaInfo);
  for (let idx = 0; idx < this.count; idx++) {
  U.position.fromArray(this.physics.positionData, 3 * idx);
- if (idx === 0 && this.config.followCursor === false) {
+ if (idx === 0) {
  U.scale.setScalar(0);
  } else {
  U.scale.setScalar(this.physics.sizeData[idx]);
@@ -779,6 +777,7 @@ interface CreateBallpitReturn {
  spheres: Z;
  setCount: (count: number) => void;
  updateConfig: (newProps: { [key: string]: any }) => void;
+ rainFromTop: () => void;
  togglePause: () => void;
  dispose: () => void;
 }
@@ -791,7 +790,7 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  });
  let spheres: Z;
  threeInstance.renderer.toneMapping = ACESFilmicToneMapping;
- threeInstance.maxPixelRatio = 1.1;
+ threeInstance.maxPixelRatio = window.matchMedia('(max-width: 768px)').matches ? 0.85 : 1.05;
  threeInstance.camera.position.set(0, -1.6, 18);
  threeInstance.camera.lookAt(0, 0, 0);
  threeInstance.cameraMaxAspect = 1.5;
@@ -806,27 +805,28 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  canvas.style.userSelect = 'none';
  (canvas.style as any).webkitUserSelect = 'none';
 
- let pointerData: { dispose?: () => void } = { dispose() {} };
- if (config.followCursor !== false) {
-  const tracked = createPointerData({
-   domElement: canvas,
-   onMove() {
-    raycaster.setFromCamera(tracked.nPosition, threeInstance.camera);
-    threeInstance.camera.getWorldDirection(plane.normal);
-    raycaster.ray.intersectPlane(plane, intersectionPoint);
-    spheres.physics.center.copy(intersectionPoint);
-    spheres.config.controlSphere0 = true;
-   },
-   onLeave() {
+ let pointerData = createPointerData({
+  domElement: canvas,
+  onMove() {
+   if (Number(document.documentElement.dataset.pointerEnv || "0") > 0.42) {
     spheres.config.controlSphere0 = false;
+    return;
    }
-  });
-  pointerData = tracked;
- }
+   raycaster.setFromCamera(pointerData.nPosition, threeInstance.camera);
+   threeInstance.camera.getWorldDirection(plane.normal);
+   raycaster.ray.intersectPlane(plane, intersectionPoint);
+   spheres.physics.center.copy(intersectionPoint);
+   spheres.config.controlSphere0 = true;
+  },
+  onLeave() {
+   spheres.config.controlSphere0 = false;
+  }
+ });
  function initialize(cfg: any) {
  if (spheres) {
- threeInstance.clear();
+ spheres.releaseEnv?.();
  threeInstance.scene.remove(spheres);
+ threeInstance.clear();
  }
  spheres = new Z(threeInstance.renderer, cfg);
  threeInstance.scene.add(spheres);
@@ -837,6 +837,8 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  threeInstance.onAfterResize = size => {
  spheres.config.maxX = size.wWidth / 2;
  spheres.config.maxY = size.wHeight / 2;
+ spheres.physics.config.maxX = size.wWidth / 2;
+ spheres.physics.config.maxY = size.wHeight / 2;
  };
  return {
  three: threeInstance,
@@ -846,11 +848,33 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  setCount(count: number) {
  initialize({ ...spheres.config, count });
  },
+ rainFromTop() {
+  const { physics } = spheres;
+  const { config, positionData, velocityData } = physics;
+  threeInstance.camera.position.set(0, 0, 18);
+  threeInstance.camera.lookAt(0, 0, 0);
+  for (let i = 1; i < config.count; i++) {
+   const base = 3 * i;
+   positionData[base] = MathUtils.randFloatSpread(2 * config.maxX);
+   positionData[base + 1] = config.maxY + Math.random() * config.maxY * 1.35 + config.maxSize;
+   positionData[base + 2] = MathUtils.randFloatSpread(2 * config.maxZ);
+   velocityData[base] = (Math.random() - 0.5) * 0.03;
+   velocityData[base + 1] = -0.035 - Math.random() * 0.05;
+   velocityData[base + 2] = (Math.random() - 0.5) * 0.02;
+  }
+ },
  updateConfig(newProps: { [key: string]: any }) {
  if (newProps.count !== undefined && newProps.count !== spheres.config.count) {
  initialize({ ...spheres.config, ...newProps });
  } else {
  Object.assign(spheres.config, newProps);
+ Object.assign(spheres.physics.config, {
+  gravity: spheres.config.gravity,
+  friction: spheres.config.friction,
+  maxVelocity: spheres.config.maxVelocity,
+  wallBounce: spheres.config.wallBounce,
+  followCursor: spheres.config.followCursor
+ });
  if (newProps.colors) {
  spheres.setColors(spheres.config.colors);
  }
@@ -863,7 +887,9 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  isPaused = !isPaused;
  },
  dispose() {
+ if (threeInstance.isDisposed) return;
  pointerData.dispose?.();
+ spheres?.releaseEnv?.();
  threeInstance.dispose();
  }
  };
@@ -872,58 +898,102 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
 interface BallpitProps {
  className?: string;
  followCursor?: boolean;
+ playful?: boolean;
+ dropIn?: boolean;
+ count?: number;
  [key: string]: any;
 }
 
-const Ballpit: React.FC<BallpitProps> = ({ className = '', followCursor = true, ...props }) => {
+const Ballpit: React.FC<BallpitProps> = ({
+ className = '',
+ playful = false,
+ dropIn = false,
+ count,
+ ...props
+}) => {
  const canvasRef = useRef<HTMLCanvasElement>(null);
- const spheresInstanceRef = useRef<ReturnType<typeof createBallpit> | null>(null);
- const isFirstRender = useRef(true);
+ const instanceRef = useRef<ReturnType<typeof createBallpit> | null>(null);
+ const rainedRef = useRef(false);
+ const dropInRef = useRef(dropIn);
+ const playfulRef = useRef(playful);
+ dropInRef.current = dropIn;
+ playfulRef.current = playful;
 
  useEffect(() => {
  const canvas = canvasRef.current;
  if (!canvas) return;
  let cancelled = false;
- let frame = 0;
+ let startFrame = 0;
+ let settle = 0;
+ let created: ReturnType<typeof createBallpit> | null = null;
 
- const start = () => {
- if (cancelled || !canvas.isConnected) return;
+ const boot = () => {
+ if (cancelled || !canvas.isConnected || created) return;
  if (canvas.clientWidth < 2 || canvas.clientHeight < 2) {
-  frame = requestAnimationFrame(start);
+  startFrame = requestAnimationFrame(boot);
   return;
  }
  try {
-  spheresInstanceRef.current = createBallpit(canvas, {
-   followCursor,
+  const mobile = window.matchMedia('(max-width: 768px)').matches;
+  created = createBallpit(canvas, {
+   followCursor: false,
+   gravity: 0.022,
+   count,
    ...props
   });
+  created.three.maxPixelRatio = mobile ? 0.85 : 1.05;
+  created.three.resize();
+  instanceRef.current = created;
+  if (dropInRef.current && !rainedRef.current) {
+   rainedRef.current = true;
+   created.rainFromTop();
+   created.updateConfig({ followCursor: false, gravity: 0.085, maxVelocity: 0.12 });
+  }
+  if (playfulRef.current) {
+   settle = window.setTimeout(() => {
+    if (cancelled || instanceRef.current !== created) return;
+    created.updateConfig({ followCursor: false, gravity: 0.038, friction: 0.995, maxVelocity: 0.1 });
+   }, 1400);
+  }
  } catch {
-  spheresInstanceRef.current = null;
+  created = null;
+  instanceRef.current = null;
  }
  };
 
- frame = requestAnimationFrame(start);
+ startFrame = requestAnimationFrame(boot);
 
  return () => {
  cancelled = true;
- cancelAnimationFrame(frame);
- if (spheresInstanceRef.current) {
-  spheresInstanceRef.current.dispose();
-  spheresInstanceRef.current = null;
- }
+ cancelAnimationFrame(startFrame);
+ window.clearTimeout(settle);
+ instanceRef.current = null;
+ created?.dispose();
+ created = null;
  };
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
  useEffect(() => {
- if (isFirstRender.current) {
- isFirstRender.current = false;
- return;
- }
- if (spheresInstanceRef.current) {
- spheresInstanceRef.current.updateConfig({ followCursor, ...props });
- }
- }, [props, followCursor]);
+  const inst = instanceRef.current;
+  if (!inst) return;
+  let settle = 0;
+  if (dropIn && !rainedRef.current) {
+   rainedRef.current = true;
+   inst.three.resize();
+   inst.rainFromTop();
+   inst.updateConfig({ followCursor: false, gravity: 0.085, maxVelocity: 0.12 });
+  }
+  if (playful) {
+   settle = window.setTimeout(() => {
+    if (instanceRef.current !== inst) return;
+    inst.updateConfig({ followCursor: false, gravity: 0.038, friction: 0.995, maxVelocity: 0.1 });
+   }, 1400);
+  } else if (!dropIn) {
+   inst.updateConfig({ followCursor: false, gravity: 0.022, maxVelocity: 0.07 });
+  }
+  return () => window.clearTimeout(settle);
+ }, [dropIn, playful]);
 
  return (
   <canvas ref={canvasRef} className={className} style={{ width: '100%', height: '100%', display: 'block' }} />

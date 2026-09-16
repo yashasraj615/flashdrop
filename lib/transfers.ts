@@ -20,6 +20,7 @@ import {
 import { sanitizeFilename, storageContentType } from "@/lib/filenames"
 import { createManageToken, hashManageToken, manageTokensMatch } from "@/lib/manage"
 import { QuotaError, assertFitsQuota, remainingBytes } from "@/lib/quota"
+import { requireLifetimeSeconds, type LifetimeSeconds } from "@/lib/lifetime"
 import { createDownloadToken } from "@/lib/tokens"
 
 export type TransferStatus =
@@ -36,6 +37,7 @@ export type TransferRecord = {
   manageTokenHash: string
   status: TransferStatus
   totalSize: number
+  lifetimeSeconds: number
   expiresAt: string | null
   uploadedAt: string | null
   deletedAt: string | null
@@ -48,7 +50,7 @@ export type TransferRecord = {
 }
 
 const TRANSFER_COLUMNS = `
-  id, token, manage_token_hash, status, total_size, expires_at, uploaded_at, deleted_at,
+  id, token, manage_token_hash, status, total_size, lifetime_seconds, expires_at, uploaded_at, deleted_at,
   download_count, last_downloaded_at, cleanup_attempts, last_cleanup_error, created_at, updated_at
 `
 
@@ -75,6 +77,7 @@ function mapTransfer(row: Row): TransferRecord {
     manageTokenHash: String(row.manage_token_hash),
     status: String(row.status) as TransferStatus,
     totalSize: toNumber(row.total_size),
+    lifetimeSeconds: toNumber(row.lifetime_seconds) || 3600,
     expiresAt: row.expires_at ? new Date(String(row.expires_at)).toISOString() : null,
     uploadedAt: row.uploaded_at ? new Date(String(row.uploaded_at)).toISOString() : null,
     deletedAt: row.deleted_at ? new Date(String(row.deleted_at)).toISOString() : null,
@@ -123,6 +126,7 @@ export function publicTransferView(
     remaining: remainingBytes(used),
     limit: MAX_TRANSFER_SIZE_BYTES,
     fileCount: visible.filter((file) => file.status === "active").length,
+    lifetimeSeconds: transfer.lifetimeSeconds,
     expiresAt: transfer.expiresAt,
     uploadedAt: transfer.uploadedAt,
     downloadCount: transfer.downloadCount,
@@ -210,9 +214,17 @@ async function insertFileRows(transferId: string, files: ReturnType<typeof prepa
   return created
 }
 
-export async function createTransfer(input: IncomingFile[]) {
+export async function createTransfer(input: IncomingFile[], lifetimeSeconds?: unknown) {
   const files = preparedFiles(input)
   const requested = files.reduce((sum, file) => sum + file.size, 0)
+  let lifetime: LifetimeSeconds
+  try {
+    lifetime = requireLifetimeSeconds(lifetimeSeconds ?? 3600)
+  } catch (error) {
+    throw new UploadValidationError(
+      error instanceof Error ? error.message : "Choose a transfer lifetime between 5 minutes and 5 hours."
+    )
+  }
   assertFitsQuota({
     used: 0,
     requested,
@@ -228,10 +240,10 @@ export async function createTransfer(input: IncomingFile[]) {
     const token = createDownloadToken()
     try {
       const rows = await sql.query(
-        `INSERT INTO transfers (token, manage_token_hash, status, total_size)
-         VALUES ($1, $2, 'uploading', 0)
+        `INSERT INTO transfers (token, manage_token_hash, status, total_size, lifetime_seconds)
+         VALUES ($1, $2, 'uploading', 0, $3)
          RETURNING ${TRANSFER_COLUMNS}`,
-        [token, manageTokenHash]
+        [token, manageTokenHash, lifetime]
       )
       const transfer = mapTransfer(rows[0] as Row)
       const createdFiles = await insertFileRows(transfer.id, files)
@@ -259,7 +271,7 @@ export async function addFilesToTransfer(
   assertManager(transfer, manageToken)
 
   if (publicTransferStatus(transfer) === "expired") {
-    throw new UploadValidationError("This transfer has expired. Files are automatically removed after 24 hours.")
+    throw new UploadValidationError("This transfer has expired. Temporary files are automatically removed when the transfer expires.")
   }
 
   const files = preparedFiles(input)
@@ -304,7 +316,7 @@ export async function activateFileAndTransfer(fileId: string) {
        status = 'active',
        total_size = $2,
        uploaded_at = COALESCE(uploaded_at, NOW()),
-       expires_at = COALESCE(expires_at, NOW() + INTERVAL '24 hours'),
+       expires_at = COALESCE(expires_at, NOW() + make_interval(secs => lifetime_seconds)),
        last_cleanup_error = NULL,
        updated_at = NOW()
      WHERE id = $1::uuid

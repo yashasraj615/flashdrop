@@ -12,6 +12,14 @@ export function CosmicShell({ children }: { children: React.ReactNode }) {
       <CosmicEnvironment />
       <GhostCursor />
       {children}
+      <a
+        href="https://github.com/yashasraj615"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed right-4 bottom-3 z-30 text-[11px] tracking-wide text-white/38 transition-colors hover:text-white/70"
+      >
+        Made by <span className="underline decoration-white/20 underline-offset-2">Yashas Raj S</span>
+      </a>
       <InstallPrompt />
       <OfflineBanner />
     </AtmosphereProvider>

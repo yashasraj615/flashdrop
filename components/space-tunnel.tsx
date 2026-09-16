@@ -38,7 +38,7 @@ export function SpaceTunnel() {
       radius: 0.18 + Math.random() * 0.82,
       speed: 0.12 + Math.random() * 0.22,
       size: 0.6 + Math.random() * 1.8,
-      hue: 210 + Math.random() * 90,
+      hue: 168 + Math.random() * 42,
     }))
 
     const resize = () => {
@@ -86,7 +86,7 @@ export function SpaceTunnel() {
         const alpha = (1 - travel) * display * 0.16
         ctx.beginPath()
         ctx.ellipse(cx, cy, radius * 0.58, radius, 0, 0, Math.PI * 2)
-        ctx.strokeStyle = `rgba(${140 + i * 5}, ${110 + i * 7}, 255, ${alpha})`
+        ctx.strokeStyle = `rgba(${40 + i * 6}, ${190 + i * 2}, ${210 + i * 2}, ${alpha})`
         ctx.lineWidth = Math.max(1, (2.6 - travel * 1.8) * dpr)
         ctx.stroke()
       }
@@ -114,9 +114,9 @@ export function SpaceTunnel() {
 
       const core = 16 + display * 52 + Math.sin(t * 3.1) * 5
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, core * 6.4)
-      glow.addColorStop(0, `rgba(230, 214, 255, ${0.18 + display * 0.38})`)
-      glow.addColorStop(0.28, `rgba(92, 78, 230, ${0.16 * display})`)
-      glow.addColorStop(1, "rgba(8, 10, 24, 0)")
+      glow.addColorStop(0, `rgba(190, 255, 245, ${0.18 + display * 0.38})`)
+      glow.addColorStop(0.28, `rgba(34, 180, 210, ${0.16 * display})`)
+      glow.addColorStop(1, "rgba(4, 8, 13, 0)")
       ctx.fillStyle = glow
       ctx.beginPath()
       ctx.arc(cx, cy, core * 6.4, 0, Math.PI * 2)
@@ -125,7 +125,7 @@ export function SpaceTunnel() {
       if (ripple > 0.02) {
         ctx.beginPath()
         ctx.ellipse(cx, cy, ripple * width * 0.42, ripple * height * 0.3, 0, 0, Math.PI * 2)
-        ctx.strokeStyle = `rgba(226, 218, 255, ${0.32 * (1 - ripple)})`
+        ctx.strokeStyle = `rgba(186, 250, 241, ${0.32 * (1 - ripple)})`
         ctx.lineWidth = 3 * dpr
         ctx.stroke()
       }

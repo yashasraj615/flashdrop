@@ -40,6 +40,7 @@ import {
 } from "@/lib/client-upload"
 import { decryptAndSave, decryptAndSaveAll, type DownloadableFile } from "@/lib/client-download"
 import { MAX_TRANSFER_SIZE_BYTES } from "@/lib/constants"
+import { DEFAULT_LIFETIME_SECONDS, LIFETIME_OPTIONS, type LifetimeSeconds } from "@/lib/lifetime"
 import { fileKind, kindLabel } from "@/lib/file-kind"
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format"
 import { isPlausibleToken } from "@/lib/token-format"
@@ -57,7 +58,9 @@ type PublicTransfer = {
   remaining: number
   limit: number
   fileCount: number
+  lifetimeSeconds?: number
   expiresAt: string | null
+  serverNow?: string
   files: PublicFile[]
   isOwner?: boolean
 }
@@ -88,6 +91,7 @@ export function TransferExperience({ token }: { token?: string }) {
   const [qrOpen, setQrOpen] = useState(false)
   const [canShare, setCanShare] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [lifetimeSeconds, setLifetimeSeconds] = useState<LifetimeSeconds>(DEFAULT_LIFETIME_SECONDS)
 
   const used = transfer?.totalSize ?? selectionSize(selected)
   const remaining = remainingBytes(used)
@@ -127,10 +131,10 @@ export function TransferExperience({ token }: { token?: string }) {
   useEffect(() => {
     if (phase === "uploading") setScene("uploading")
     else if (phase === "completing") setScene("completing")
-    else if (phase === "ready") setScene("ready")
-    else if (phase === "create" || phase === "expired" || phase === "invalid" || phase === "missing-key") {
-      setScene("idle")
+    else if (phase === "ready" || phase === "expired" || phase === "invalid" || phase === "missing-key") {
+      setScene("ready")
     }
+    else if (phase === "create") setScene("idle")
   }, [phase, setScene])
 
   useEffect(() => {
@@ -147,6 +151,22 @@ export function TransferExperience({ token }: { token?: string }) {
     manageRef.current = readManageToken(token)
     void loadTransfer(token)
   }, [loadTransfer, token])
+
+  useEffect(() => {
+    if (phase !== "ready" || !transfer?.expiresAt) return
+    const offset = transfer.serverNow ? Date.now() - new Date(transfer.serverNow).getTime() : 0
+    const remaining = new Date(transfer.expiresAt).getTime() - (Date.now() - offset)
+    if (remaining <= 0) {
+      setPhase("expired")
+      setTransfer(null)
+      return
+    }
+    const id = window.setTimeout(() => {
+      setPhase("expired")
+      setTransfer(null)
+    }, remaining)
+    return () => window.clearTimeout(id)
+  }, [phase, transfer])
 
   const resetNotice = () => setNotice(null)
 
@@ -195,7 +215,7 @@ export function TransferExperience({ token }: { token?: string }) {
       setStatusText("Preparing")
       const created = existing
         ? await requestAddFiles(existing.token, existing.manageToken, files, abort.signal)
-        : await requestTransfer(files, abort.signal)
+        : await requestTransfer(files, abort.signal, lifetimeSeconds)
 
       manageRef.current = existing?.manageToken || created.manageToken
       storeManageToken(created.token, manageRef.current)
@@ -288,7 +308,7 @@ export function TransferExperience({ token }: { token?: string }) {
     try {
       await navigator.share({
         title: "Flashdrop transfer",
-        text: "A temporary encrypted transfer, available for 24 hours.",
+        text: "A temporary encrypted transfer.",
         url: shareLink,
       })
     } catch (error) {
@@ -307,6 +327,11 @@ export function TransferExperience({ token }: { token?: string }) {
     try {
       await decryptAndSave(transfer.token, file, secret)
     } catch (error) {
+      if (error instanceof Error && /expired/i.test(error.message)) {
+        setPhase("expired")
+        setTransfer(null)
+        return
+      }
       setNotice({
         title: "Unable to decrypt this file.",
         description:
@@ -331,6 +356,11 @@ export function TransferExperience({ token }: { token?: string }) {
     try {
       await decryptAndSaveAll(transfer.token, transfer.files, secret)
     } catch (error) {
+      if (error instanceof Error && /expired/i.test(error.message)) {
+        setPhase("expired")
+        setTransfer(null)
+        return
+      }
       setNotice({
         title: "Unable to decrypt this file.",
         description:
@@ -388,8 +418,8 @@ export function TransferExperience({ token }: { token?: string }) {
     return (
       <GlassCard>
         <StatusBlock
-          title="This transfer has expired"
-          description="Files are automatically removed after 24 hours."
+          title="This transfer has expired."
+          description="Temporary files are automatically removed when the transfer expires."
           action="Create new transfer"
           href="/"
         />
@@ -473,7 +503,7 @@ export function TransferExperience({ token }: { token?: string }) {
               {transfer.expiresAt ? (
                 <>
                   {" "}
-                  · Available for <Countdown expiresAt={transfer.expiresAt} compact />
+                  · <Countdown expiresAt={transfer.expiresAt} serverNow={transfer.serverNow} compact />
                 </>
               ) : null}
             </p>
@@ -574,11 +604,12 @@ export function TransferExperience({ token }: { token?: string }) {
           Simply.
         </h1>
         <p className="mx-auto mt-4 max-w-md text-sm text-white/60 text-pretty sm:text-base">
-          Upload up to 1 GB and share it with a temporary link that expires after 24 hours.
+          Upload up to 1 GB and share it with a temporary link. Transfers last 5 hours or less.
         </p>
       </div>
 
       <GlassCard>
+        <LifetimePicker value={lifetimeSeconds} onChange={setLifetimeSeconds} />
         <motion.div
           animate={dragging && !reduceMotion ? { scale: 1.015 } : { scale: 1 }}
           className={cn(
@@ -650,6 +681,42 @@ function GlassCard({ children }: { children: React.ReactNode }) {
   return (
     <div data-glass-panel className="glass-panel w-full rounded-[32px] p-5 sm:p-8">
       {children}
+    </div>
+  )
+}
+
+function LifetimePicker({
+  value,
+  onChange,
+}: {
+  value: LifetimeSeconds
+  onChange: (value: LifetimeSeconds) => void
+}) {
+  return (
+    <div className="mb-5">
+      <p className="text-xs tracking-[0.18em] text-white/50 uppercase">Transfer lifetime</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {LIFETIME_OPTIONS.map((option) => {
+          const selected = value === option.seconds
+          return (
+            <button
+              key={option.seconds}
+              type="button"
+              data-magnetic
+              className={cn(
+                "magnet-control h-11 rounded-2xl border px-2 text-sm transition-colors",
+                selected
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-white/10 bg-white/4 text-white/70"
+              )}
+              aria-pressed={selected}
+              onClick={() => onChange(option.seconds)}
+            >
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -1,14 +1,14 @@
 export const APP_NAME = "Flashdrop"
 export const APP_TAGLINE = "Send files. Simply."
 export const APP_DESCRIPTION =
-  "Upload up to 1 GB and share it with a temporary link that expires after 24 hours."
+  "Upload up to 1 GB and share it with a temporary link that expires in 5 hours or less."
 
 export const MAX_TRANSFER_SIZE_BYTES = 1024 * 1024 * 1024
 /** @deprecated Use MAX_TRANSFER_SIZE_BYTES. Kept for existing tests. */
 export const MAX_FILE_SIZE_BYTES = MAX_TRANSFER_SIZE_BYTES
 export const MAX_FILES_PER_TRANSFER = 100
-export const FILE_TTL_MS = 24 * 60 * 60 * 1000
-export const FILE_TTL_HOURS = 24
+export const FILE_TTL_MS = 5 * 60 * 60 * 1000
+export const FILE_TTL_HOURS = 5
 export const STALE_UPLOAD_MS = 6 * 60 * 60 * 1000
 
 export const GCM_IV_BYTES = 12

@@ -54,7 +54,10 @@ async function decryptToWritable(
 ) {
   const key = await deriveFileKey(masterKey, file.id)
   const metaResponse = await fetch(`/api/transfers/${token}/files/${file.id}/download`)
-  const meta = (await metaResponse.json()) as { url?: string; error?: string; chunkSize?: number }
+  const meta = (await metaResponse.json()) as { url?: string; error?: string; chunkSize?: number; status?: string }
+  if (metaResponse.status === 410 || meta.status === "expired") {
+    throw new Error("This transfer has expired.")
+  }
   if (!metaResponse.ok || !meta.url) {
     throw new Error(meta.error || "Download failed.")
   }

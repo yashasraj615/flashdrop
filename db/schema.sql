@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS transfers (
   manage_token_hash TEXT NOT NULL,
   status transfer_status NOT NULL DEFAULT 'uploading',
   total_size BIGINT NOT NULL DEFAULT 0 CHECK (total_size >= 0 AND total_size <= 1073741824),
+  lifetime_seconds INTEGER NOT NULL DEFAULT 3600 CHECK (lifetime_seconds IN (300, 600, 1800, 3600, 7200, 18000)),
   expires_at TIMESTAMPTZ,
   uploaded_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ,

@@ -56,11 +56,12 @@ function putWithProgress(
   })
 }
 
-export async function requestTransfer(files: File[], signal: AbortSignal) {
+export async function requestTransfer(files: File[], signal: AbortSignal, lifetimeSeconds?: number) {
   const response = await fetch("/api/transfers", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      lifetimeSeconds,
       files: files.map((file) => ({
         filename: file.name,
         mimeType: file.type || "application/octet-stream",

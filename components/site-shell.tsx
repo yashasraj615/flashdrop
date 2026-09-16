@@ -16,7 +16,7 @@ export function BrandMark({
       alt=""
       width={size}
       height={size}
-      className={cn("rounded-[22%] object-cover", className)}
+      className={cn("flashdrop-brand-mark rounded-[22%] object-cover", className)}
       draggable={false}
     />
   )
@@ -41,7 +41,7 @@ export function SiteHeader() {
   return (
     <header className="flex items-center justify-between px-1 py-4">
       <Logo />
-      <p className="hidden text-xs text-muted-foreground sm:block">Available for 24 hours</p>
+      <p className="hidden text-xs text-muted-foreground sm:block">Available for up to 5 hours</p>
     </header>
   )
 }

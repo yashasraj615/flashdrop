@@ -26,10 +26,10 @@ export function NebulaField() {
     window.addEventListener("resize", resize)
 
     const blobs = [
-      { x: 0.5, y: 0.18, r: 0.42, color: "88, 64, 210", ox: 0.018, oy: 0.012 },
-      { x: 0.78, y: 0.62, r: 0.34, color: "0, 170, 220", ox: -0.016, oy: 0.014 },
-      { x: 0.2, y: 0.78, r: 0.36, color: "210, 40, 160", ox: 0.012, oy: -0.018 },
-      { x: 0.42, y: 0.48, r: 0.22, color: "120, 90, 255", ox: -0.01, oy: 0.01 },
+      { x: 0.5, y: 0.18, r: 0.42, color: "34, 211, 238", ox: 0.018, oy: 0.012 },
+      { x: 0.78, y: 0.62, r: 0.34, color: "56, 189, 248", ox: -0.016, oy: 0.014 },
+      { x: 0.2, y: 0.78, r: 0.36, color: "45, 212, 191", ox: 0.012, oy: -0.018 },
+      { x: 0.42, y: 0.48, r: 0.22, color: "52, 211, 153", ox: -0.01, oy: 0.01 },
     ]
 
     const draw = (now: number) => {

@@ -75,7 +75,7 @@ export default function SplashCursor({
  BACK_COLOR = { r: 0, g: 0, b: 0 },
  TRANSPARENT = true,
  RAINBOW_MODE = true,
- COLOR = '#7c5cff'
+ COLOR = '#2ee6c7'
 }: SplashCursorProps) {
  const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -868,20 +868,25 @@ export default function SplashCursor({
 
  let lastUpdateTime = Date.now();
  let colorUpdateTimer = 0.0;
+ let splashFrame = 0;
+ let looping = false;
+
+ function startLoop() {
+ if (!alive || looping) return;
+ looping = true;
+ splashFrame = requestAnimationFrame(updateFrame);
+ }
 
  function updateFrame() {
  if (!alive) return;
- if (document.hidden) {
- requestAnimationFrame(updateFrame);
- return;
- }
+ splashFrame = requestAnimationFrame(updateFrame);
+ if (document.hidden) return;
  const dt = calcDeltaTime();
  if (resizeCanvas()) initFramebuffers();
  updateColors(dt);
  applyInputs();
  step(dt);
  render(null);
- requestAnimationFrame(updateFrame);
  }
 
  function calcDeltaTime() {
@@ -1060,7 +1065,8 @@ export default function SplashCursor({
 
  function splatPointer(pointer: Pointer) {
  const env = Number(document.documentElement.dataset.pointerEnv || "0");
- const scale = Math.max(0.05, 1 - Math.min(1, env) * 0.95);
+ if (env > 0.5) return;
+ const scale = Math.max(0.08, 1 - Math.min(1, env) * 0.9);
  const dx = pointer.deltaX * config.SPLAT_FORCE * scale;
  const dy = pointer.deltaY * config.SPLAT_FORCE * scale;
  splat(pointer.texcoordX, pointer.texcoordY, dx, dy, pointer.color);
@@ -1166,10 +1172,10 @@ export default function SplashCursor({
  if (!config.RAINBOW_MODE) {
  return hexToRGB(config.COLOR!);
  }
- const hue = 0.52 + Math.random() * 0.38;
- const c = HSVtoRGB(hue, 0.55, 1.0);
- c.r *= 0.11;
- c.g *= 0.09;
+ const hue = 0.42 + Math.random() * 0.14;
+ const c = HSVtoRGB(hue, 0.52, 1.0);
+ c.r *= 0.08;
+ c.g *= 0.12;
  c.b *= 0.14;
  return c;
  }
@@ -1225,33 +1231,32 @@ export default function SplashCursor({
  return ((value - min) % range) + min;
  }
 
- window.addEventListener('mousedown', e => {
+ function onMouseDown(e: MouseEvent) {
  if (Number(document.documentElement.dataset.pointerEnv || "0") > 0.5) return;
  const pointer = pointers[0];
  const posX = scaleByPixelRatio(e.clientX);
  const posY = scaleByPixelRatio(e.clientY);
  updatePointerDownData(pointer, -1, posX, posY);
  clickSplat(pointer);
- });
+ }
 
  function handleFirstMouseMove(e: MouseEvent) {
  const pointer = pointers[0];
  const posX = scaleByPixelRatio(e.clientX);
  const posY = scaleByPixelRatio(e.clientY);
  const color = generateColor();
- updateFrame();
+ startLoop();
  updatePointerMoveData(pointer, posX, posY, color);
  document.body.removeEventListener('mousemove', handleFirstMouseMove);
  }
- document.body.addEventListener('mousemove', handleFirstMouseMove);
 
- window.addEventListener('mousemove', e => {
+ function onMouseMove(e: MouseEvent) {
+ if (Number(document.documentElement.dataset.pointerEnv || "0") > 0.5) return;
  const pointer = pointers[0];
  const posX = scaleByPixelRatio(e.clientX);
  const posY = scaleByPixelRatio(e.clientY);
- const color = pointer.color;
- updatePointerMoveData(pointer, posX, posY, color);
- });
+ updatePointerMoveData(pointer, posX, posY, pointer.color);
+ }
 
  function handleFirstTouchStart(e: TouchEvent) {
  const touches = e.targetTouches;
@@ -1259,16 +1264,13 @@ export default function SplashCursor({
  for (let i = 0; i < touches.length; i++) {
  const posX = scaleByPixelRatio(touches[i].clientX);
  const posY = scaleByPixelRatio(touches[i].clientY);
- updateFrame();
+ startLoop();
  updatePointerDownData(pointer, touches[i].identifier, posX, posY);
  }
  document.body.removeEventListener('touchstart', handleFirstTouchStart);
  }
- document.body.addEventListener('touchstart', handleFirstTouchStart);
 
- window.addEventListener(
- 'touchstart',
- e => {
+ function onTouchStart(e: TouchEvent) {
  const touches = e.targetTouches;
  const pointer = pointers[0];
  for (let i = 0; i < touches.length; i++) {
@@ -1276,13 +1278,9 @@ export default function SplashCursor({
  const posY = scaleByPixelRatio(touches[i].clientY);
  updatePointerDownData(pointer, touches[i].identifier, posX, posY);
  }
- },
- false
- );
+ }
 
- window.addEventListener(
- 'touchmove',
- e => {
+ function onTouchMove(e: TouchEvent) {
  const touches = e.targetTouches;
  const pointer = pointers[0];
  for (let i = 0; i < touches.length; i++) {
@@ -1290,38 +1288,34 @@ export default function SplashCursor({
  const posY = scaleByPixelRatio(touches[i].clientY);
  updatePointerMoveData(pointer, posX, posY, pointer.color);
  }
- },
- false
- );
+ }
 
- window.addEventListener('touchend', e => {
- const touches = e.changedTouches;
+ function onTouchEnd() {
  const pointer = pointers[0];
- for (let i = 0; i < touches.length; i++) {
  updatePointerUpData(pointer);
  }
- });
+
+ window.addEventListener('mousedown', onMouseDown);
+ document.body.addEventListener('mousemove', handleFirstMouseMove);
+ window.addEventListener('mousemove', onMouseMove);
+ document.body.addEventListener('touchstart', handleFirstTouchStart);
+ window.addEventListener('touchstart', onTouchStart, false);
+ window.addEventListener('touchmove', onTouchMove, false);
+ window.addEventListener('touchend', onTouchEnd);
+
  return () => {
  alive = false;
+ looping = false;
+ cancelAnimationFrame(splashFrame);
+ window.removeEventListener('mousedown', onMouseDown);
+ document.body.removeEventListener('mousemove', handleFirstMouseMove);
+ window.removeEventListener('mousemove', onMouseMove);
+ document.body.removeEventListener('touchstart', handleFirstTouchStart);
+ window.removeEventListener('touchstart', onTouchStart, false);
+ window.removeEventListener('touchmove', onTouchMove, false);
+ window.removeEventListener('touchend', onTouchEnd);
  };
- }, [
- SIM_RESOLUTION,
- DYE_RESOLUTION,
- CAPTURE_RESOLUTION,
- DENSITY_DISSIPATION,
- VELOCITY_DISSIPATION,
- PRESSURE,
- PRESSURE_ITERATIONS,
- CURL,
- SPLAT_RADIUS,
- SPLAT_FORCE,
- SHADING,
- COLOR_UPDATE_SPEED,
- BACK_COLOR,
- TRANSPARENT,
- RAINBOW_MODE,
- COLOR
- ]);
+ }, []);
 
  return (
   <div className="pointer-events-none absolute inset-0 z-[2] h-full w-full">

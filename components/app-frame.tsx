@@ -8,12 +8,10 @@ import { APP_NAME } from "@/lib/constants"
 export function AppFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative isolate min-h-dvh overflow-x-hidden">
-      <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-lg flex-col px-4 pb-16 sm:max-w-xl sm:px-6">
+      <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-lg flex-col px-4 pb-20 sm:max-w-xl sm:px-6">
         <header className="flex items-center justify-between py-5">
           <Logo />
-          <p className="hidden text-xs tracking-wide text-white/50 uppercase sm:block">
-            24-hour transfers
-          </p>
+          <p className="text-xs tracking-wide text-white/50 uppercase">Up to 5 hours</p>
         </header>
         <main className="flex flex-1 flex-col">{children}</main>
         <footer className="mt-10 flex items-center justify-between text-xs text-white/40">

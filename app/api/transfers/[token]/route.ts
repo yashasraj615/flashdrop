@@ -55,6 +55,7 @@ export async function GET(
     return Response.json({
       ...view,
       isOwner,
+      serverNow: new Date().toISOString(),
     })
   } catch (error) {
     logError("transfer.lookup_failed", error)

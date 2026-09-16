@@ -27,6 +27,9 @@ export function GhostCursor() {
     let ty = y
     let envMix = 0
     let attached = 0
+    let envW = 22
+    let envH = 22
+    let envRadius = 11
     let frame = 0
     let visible = false
     let pressed = 0
@@ -38,19 +41,30 @@ export function GhostCursor() {
       })
     }
 
-    function nearestMagnet(px: number, py: number) {
-      let best: { el: HTMLElement; cx: number; cy: number; w: number; h: number; dist: number; radius: number } | null =
-        null
+    function pointInRect(px: number, py: number, rect: DOMRect) {
+      return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom
+    }
+
+    function hoveredControl(px: number, py: number) {
+      let best: { el: HTMLElement; cx: number; cy: number; w: number; h: number; radius: number } | null = null
+      let bestArea = Infinity
       for (const node of document.querySelectorAll("[data-magnetic]")) {
         const el = node as HTMLElement
         if (el.getAttribute("disabled") !== null) continue
         const rect = el.getBoundingClientRect()
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-        const dist = Math.hypot(px - cx, py - cy)
-        const radius = Math.max(rect.width, rect.height) * 0.62 + 26
-        if (dist < radius && (!best || dist < best.dist)) {
-          best = { el, cx, cy, w: rect.width, h: rect.height, dist, radius }
+        if (!pointInRect(px, py, rect)) continue
+        const area = rect.width * rect.height
+        if (area < bestArea) {
+          bestArea = area
+          const parsed = Number.parseFloat(getComputedStyle(el).borderRadius || "18")
+          best = {
+            el,
+            cx: rect.left + rect.width / 2,
+            cy: rect.top + rect.height / 2,
+            w: rect.width,
+            h: rect.height,
+            radius: Number.isFinite(parsed) ? parsed : 18,
+          }
         }
       }
       return best
@@ -73,46 +87,43 @@ export function GhostCursor() {
 
     const tick = () => {
       const targetEnv = insidePanel(tx, ty) ? 1 : 0
-      envMix += (targetEnv - envMix) * 0.14
+      envMix += (targetEnv - envMix) * 0.22
       document.documentElement.dataset.pointerEnv = envMix.toFixed(3)
 
-      const magnet = envMix > 0.35 ? nearestMagnet(tx, ty) : null
-      let ax = tx
-      let ay = ty
-      let attach = 0
-      if (magnet) {
-        const strength = 1 - Math.min(1, magnet.dist / magnet.radius)
-        ax += (magnet.cx - tx) * strength * 0.28
-        ay += (magnet.cy - ty) * strength * 0.28
-        attach = strength
-        magnet.el.dataset.magnetActive = strength > 0.35 ? "true" : "false"
+      const hover = hoveredControl(tx, ty)
+
+      if (hover) {
+        x += (hover.cx - x) * 0.55
+        y += (hover.cy - y) * 0.55
+        hover.el.dataset.magnetActive = "true"
+      } else {
+        x += (tx - x) * 0.38
+        y += (ty - y) * 0.38
       }
       for (const node of document.querySelectorAll("[data-magnetic]")) {
-        if (node !== magnet?.el) delete (node as HTMLElement).dataset.magnetActive
+        if (node !== hover?.el) delete (node as HTMLElement).dataset.magnetActive
       }
 
-      x += (ax - x) * (0.18 + attach * 0.16)
-      y += (ay - y) * (0.18 + attach * 0.16)
-      attached += (attach - attached) * 0.18
+      attached += ((hover ? 1 : 0) - attached) * 0.42
 
       cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`
-      cursor.style.opacity = visible ? String(0.16 + envMix * 0.84) : "0"
+      cursor.style.opacity = visible ? "1" : "0"
 
-      const ringScale = (1 - attached * 0.55) * (pressed ? 0.86 : 1)
-      ring.style.opacity = String(1 - attached)
+      const ringScale = (1 - attached * 0.85) * (pressed ? 0.92 : 1)
+      ring.style.opacity = String(Math.max(0, 1 - attached * 1.8))
       ring.style.transform = `translate(-50%, -50%) scale(${ringScale})`
 
-      if (magnet && attached > 0.2) {
-        const pad = 10
-        envelope.style.opacity = String(Math.min(1, attached * 1.35))
-        envelope.style.width = `${magnet.w + pad}px`
-        envelope.style.height = `${magnet.h + pad}px`
-        envelope.style.borderRadius = getComputedStyle(magnet.el).borderRadius || "18px"
-        envelope.style.transform = `translate(-50%, -50%) scale(${pressed ? 0.96 : 1})`
-      } else {
-        envelope.style.opacity = "0"
-        envelope.style.transform = "translate(-50%, -50%) scale(0.86)"
-      }
+      const targetW = hover ? hover.w + 10 : 22
+      const targetH = hover ? hover.h + 10 : 22
+      const targetRadius = hover ? hover.radius : 11
+      envW += (targetW - envW) * 0.48
+      envH += (targetH - envH) * 0.48
+      envRadius += (targetRadius - envRadius) * 0.48
+      envelope.style.width = `${envW}px`
+      envelope.style.height = `${envH}px`
+      envelope.style.borderRadius = `${envRadius}px`
+      envelope.style.opacity = hover ? "1" : String(Math.max(0, attached - 0.35) * 1.8)
+      envelope.style.transform = `translate(-50%, -50%) scale(${pressed && hover ? 0.98 : 1})`
 
       frame = requestAnimationFrame(tick)
     }

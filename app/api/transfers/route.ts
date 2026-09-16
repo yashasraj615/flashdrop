@@ -21,13 +21,13 @@ export async function POST(request: Request) {
       ...RATE_LIMITS.upload,
     })
 
-    const body = (await request.json()) as { files?: IncomingFile[] }
+    const body = (await request.json()) as { files?: IncomingFile[]; lifetimeSeconds?: unknown }
     const incoming = (body.files ?? []).filter(
       (file): file is { filename: string; mimeType?: string; size: number } =>
         typeof file.filename === "string" && typeof file.size === "number"
     )
 
-    const created = await createTransfer(incoming)
+    const created = await createTransfer(incoming, body.lifetimeSeconds)
     const uploads = []
     for (const file of created.files) {
       uploads.push(await createUploadPlan(file))
