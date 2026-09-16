@@ -1,4 +1,5 @@
 import { RATE_LIMITS } from "@/lib/constants"
+import { runCleanup } from "@/lib/cleanup"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logError, logEvent } from "@/lib/logger"
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit"
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
       key: `upload:${clientIp(request)}`,
       ...RATE_LIMITS.upload,
     })
+    void runCleanup().catch((error) => logError("cleanup.opportunistic_failed", error))
 
     const body = (await request.json()) as { files?: IncomingFile[]; lifetimeSeconds?: unknown }
     const incoming = (body.files ?? []).filter(
