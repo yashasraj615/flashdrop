@@ -17,14 +17,15 @@ export function SpaceTunnel() {
   const { scene, progress } = useAtmosphere()
   const sceneRef = useRef(scene)
   const progressRef = useRef(progress)
-  sceneRef.current = scene
-  progressRef.current = progress
+  useEffect(() => {
+    sceneRef.current = scene
+    progressRef.current = progress
+  }, [scene, progress])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (reduce) return
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
@@ -51,8 +52,9 @@ export function SpaceTunnel() {
 
     const draw = (now: number) => {
       if (!running) return
-      if (document.hidden) {
-        frame = requestAnimationFrame(draw)
+      frame = 0
+      if (document.hidden || motion.matches) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
         return
       }
       const currentScene = sceneRef.current
@@ -94,8 +96,12 @@ export function SpaceTunnel() {
       for (const particle of particles) {
         particle.radius -= particle.speed * 0.006 * (0.35 + display)
         if (particle.radius < 0.04) particle.radius = 1
-        const px = cx + Math.cos(particle.angle + t * 0.15) * particle.radius * width * 0.42
-        const py = cy + Math.sin(particle.angle + t * 0.12) * particle.radius * height * 0.38
+        const px =
+          cx +
+          Math.cos(particle.angle + t * 0.15) * particle.radius * width * 0.42
+        const py =
+          cy +
+          Math.sin(particle.angle + t * 0.12) * particle.radius * height * 0.38
         const trail = 18 * dpr * display
         ctx.beginPath()
         ctx.moveTo(px, py)
@@ -124,7 +130,15 @@ export function SpaceTunnel() {
 
       if (ripple > 0.02) {
         ctx.beginPath()
-        ctx.ellipse(cx, cy, ripple * width * 0.42, ripple * height * 0.3, 0, 0, Math.PI * 2)
+        ctx.ellipse(
+          cx,
+          cy,
+          ripple * width * 0.42,
+          ripple * height * 0.3,
+          0,
+          0,
+          Math.PI * 2
+        )
         ctx.strokeStyle = `rgba(186, 250, 241, ${0.32 * (1 - ripple)})`
         ctx.lineWidth = 3 * dpr
         ctx.stroke()
@@ -134,7 +148,16 @@ export function SpaceTunnel() {
     }
     frame = requestAnimationFrame(draw)
 
+    const resume = () => {
+      cancelAnimationFrame(frame)
+      frame = 0
+      if (!document.hidden) frame = requestAnimationFrame(draw)
+    }
+    document.addEventListener("visibilitychange", resume)
+    motion.addEventListener("change", resume)
     return () => {
+      document.removeEventListener("visibilitychange", resume)
+      motion.removeEventListener("change", resume)
       running = false
       cancelAnimationFrame(frame)
       window.removeEventListener("resize", resize)

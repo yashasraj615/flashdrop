@@ -1,7 +1,7 @@
 export const APP_NAME = "Flashdrop"
 export const APP_TAGLINE = "Send files. Simply."
 export const APP_DESCRIPTION =
-  "Upload up to 1 GB and share it with a temporary link that expires in 5 hours or less."
+  "Share files, original-quality media and text with temporary links, or connect devices for transfers up to 20 GB with Wide Connect."
 
 export const MAX_TRANSFER_SIZE_BYTES = 1024 * 1024 * 1024
 /** @deprecated Use MAX_TRANSFER_SIZE_BYTES. Kept for existing tests. */
@@ -18,7 +18,8 @@ export const ENCRYPTION_VERSION = "v1"
 
 /** 8 MiB ciphertext parts stay above the S3 5 MiB minimum. */
 export const PART_SIZE_BYTES = 8 * 1024 * 1024
-export const ENCRYPTION_CHUNK_BYTES = PART_SIZE_BYTES - ENCRYPTION_OVERHEAD_PER_CHUNK
+export const ENCRYPTION_CHUNK_BYTES =
+  PART_SIZE_BYTES - ENCRYPTION_OVERHEAD_PER_CHUNK
 export const UPLOAD_CONCURRENCY = 4
 export const UPLOAD_URL_TTL_SECONDS = 60 * 60
 export const DOWNLOAD_URL_TTL_SECONDS = 2 * 60
@@ -30,27 +31,46 @@ export const RATE_LIMITS = {
   metadata: { limit: 180, windowMs: 60 * 60 * 1000 },
 } as const
 
-export function chunkCount(fileSize: number, chunkSize = ENCRYPTION_CHUNK_BYTES): number {
+export function chunkCount(
+  fileSize: number,
+  chunkSize = ENCRYPTION_CHUNK_BYTES
+): number {
   if (fileSize <= 0) return 0
   return Math.ceil(fileSize / chunkSize)
 }
 
-export function encryptedSize(fileSize: number, chunkSize = ENCRYPTION_CHUNK_BYTES): number {
-  return fileSize + chunkCount(fileSize, chunkSize) * ENCRYPTION_OVERHEAD_PER_CHUNK
+export function encryptedSize(
+  fileSize: number,
+  chunkSize = ENCRYPTION_CHUNK_BYTES
+): number {
+  return (
+    fileSize + chunkCount(fileSize, chunkSize) * ENCRYPTION_OVERHEAD_PER_CHUNK
+  )
 }
 
-export function expectedPartCount(fileSize: number, partSize = PART_SIZE_BYTES): number {
+export function expectedPartCount(
+  fileSize: number,
+  partSize = PART_SIZE_BYTES
+): number {
   if (fileSize <= 0) return 0
   return Math.ceil(fileSize / partSize)
 }
 
-export function partByteRange(index: number, fileSize: number, partSize = PART_SIZE_BYTES) {
+export function partByteRange(
+  index: number,
+  fileSize: number,
+  partSize = PART_SIZE_BYTES
+) {
   const offset = index * partSize
   const length = Math.min(partSize, fileSize - offset)
   return { offset, length }
 }
 
-export function plaintextChunkRange(index: number, fileSize: number, chunkSize = ENCRYPTION_CHUNK_BYTES) {
+export function plaintextChunkRange(
+  index: number,
+  fileSize: number,
+  chunkSize = ENCRYPTION_CHUNK_BYTES
+) {
   const offset = index * chunkSize
   const length = Math.min(chunkSize, fileSize - offset)
   return { offset, length }

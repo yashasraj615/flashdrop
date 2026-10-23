@@ -84,9 +84,9 @@ export default function SplashCursor({
  if (!canvas) return;
  let alive = true;
 
- let pointers: Pointer[] = [pointerPrototype()];
+ const pointers: Pointer[] = [pointerPrototype()];
 
- let config = {
+ const config = {
  SIM_RESOLUTION: SIM_RESOLUTION!,
  DYE_RESOLUTION: DYE_RESOLUTION!,
  CAPTURE_RESOLUTION: CAPTURE_RESOLUTION!,
@@ -286,7 +286,7 @@ export default function SplashCursor({
  }
 
  function getUniforms(program: WebGLProgram) {
- let uniforms: Record<string, WebGLUniformLocation | null> = {};
+ const uniforms: Record<string, WebGLUniformLocation | null> = {};
  const uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
  for (let i = 0; i < uniformCount; i++) {
  const uniformInfo = gl.getActiveUniform(program, i);
@@ -781,6 +781,7 @@ export default function SplashCursor({
  copyProgram.bind();
  if (copyProgram.uniforms.uTexture) gl.uniform1i(copyProgram.uniforms.uTexture, target.attach(0));
  blit(newFBO, false);
+ disposeFBO(target);
  return newFBO;
  }
 
@@ -795,6 +796,7 @@ export default function SplashCursor({
  ) {
  if (target.width === w && target.height === h) return target;
  target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param);
+ disposeFBO(target.write);
  target.write = createFBO(w, h, internalFormat, format, type, param);
  target.width = w;
  target.height = h;
@@ -802,6 +804,8 @@ export default function SplashCursor({
  target.texelSizeY = 1 / h;
  return target;
  }
+
+ function disposeFBO(target: FBO | undefined) { if (target) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.fbo); } }
 
  function initFramebuffers() {
  const simRes = getResolution(config.SIM_RESOLUTION!);
@@ -834,6 +838,8 @@ export default function SplashCursor({
  );
  }
 
+ disposeFBO(divergence); disposeFBO(curl);
+ if (pressure) { disposeFBO(pressure.read); disposeFBO(pressure.write); }
  divergence = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, gl.NEAREST);
  curl = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, gl.NEAREST);
  pressure = createDoubleFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, gl.NEAREST);
@@ -849,7 +855,7 @@ export default function SplashCursor({
  const w = gl.drawingBufferWidth;
  const h = gl.drawingBufferHeight;
  const aspectRatio = w / h;
- let aspect = aspectRatio < 1 ? 1 / aspectRatio : aspectRatio;
+ const aspect = aspectRatio < 1 ? 1 / aspectRatio : aspectRatio;
  const min = Math.round(resolution);
  const max = Math.round(resolution * aspect);
  if (w > h) {
@@ -872,15 +878,14 @@ export default function SplashCursor({
  let looping = false;
 
  function startLoop() {
- if (!alive || looping) return;
+ if (!alive || looping || document.hidden) return;
  looping = true;
  splashFrame = requestAnimationFrame(updateFrame);
  }
 
  function updateFrame() {
- if (!alive) return;
+ if (!alive || document.hidden) { looping = false; return; }
  splashFrame = requestAnimationFrame(updateFrame);
- if (document.hidden) return;
  const dt = calcDeltaTime();
  if (resizeCanvas()) initFramebuffers();
  updateColors(dt);
@@ -1295,6 +1300,11 @@ export default function SplashCursor({
  updatePointerUpData(pointer);
  }
 
+ const onVisibility = () => {
+ if (document.hidden) { cancelAnimationFrame(splashFrame); looping = false; }
+ else { lastUpdateTime = Date.now(); startLoop(); }
+ };
+ document.addEventListener('visibilitychange', onVisibility);
  window.addEventListener('mousedown', onMouseDown);
  document.body.addEventListener('mousemove', handleFirstMouseMove);
  window.addEventListener('mousemove', onMouseMove);
@@ -1307,6 +1317,9 @@ export default function SplashCursor({
  alive = false;
  looping = false;
  cancelAnimationFrame(splashFrame);
+ document.removeEventListener('visibilitychange', onVisibility);
+ const loseContext = gl.getExtension('WEBGL_lose_context');
+ loseContext?.loseContext();
  window.removeEventListener('mousedown', onMouseDown);
  document.body.removeEventListener('mousemove', handleFirstMouseMove);
  window.removeEventListener('mousemove', onMouseMove);
@@ -1315,6 +1328,8 @@ export default function SplashCursor({
  window.removeEventListener('touchmove', onTouchMove, false);
  window.removeEventListener('touchend', onTouchEnd);
  };
+ // Configuration is mount-only; route and scene updates must preserve the WebGL context.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
  return (

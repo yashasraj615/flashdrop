@@ -1,4 +1,5 @@
 import { RATE_LIMITS } from "@/lib/constants"
+import { after } from "next/server"
 import { runCleanup } from "@/lib/cleanup"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logError, logEvent } from "@/lib/logger"
@@ -27,12 +28,16 @@ export async function GET(
 
     const { token } = await context.params
     if (!isPlausibleToken(token)) {
-      return jsonError("This transfer isn't available.", 404, { status: "invalid" })
+      return jsonError("This transfer isn't available.", 404, {
+        status: "invalid",
+      })
     }
 
     const bundle = await getTransferBundle(token)
     if (!bundle) {
-      return jsonError("This transfer isn't available.", 404, { status: "invalid" })
+      return jsonError("This transfer isn't available.", 404, {
+        status: "invalid",
+      })
     }
 
     const status = publicTransferStatus(bundle.transfer)
@@ -41,15 +46,26 @@ export async function GET(
         await markTransferExpired(bundle.transfer.id)
       }
       logEvent("transfer.expired", { token: tokenPreview(token) })
-      void runCleanup().catch((error) => logError("cleanup.opportunistic_failed", error))
+      after(() =>
+        runCleanup().catch((error) =>
+          logError("cleanup.opportunistic_failed", error)
+        )
+      )
       return jsonError("This transfer has expired.", 410, { status: "expired" })
     }
 
-    const isOwner = manageTokensMatch(readManageToken(request), bundle.transfer.manageTokenHash)
-    const view = publicTransferView(bundle.transfer, bundle.files, { includeUploading: isOwner })
+    const isOwner = manageTokensMatch(
+      readManageToken(request),
+      bundle.transfer.manageTokenHash
+    )
+    const view = publicTransferView(bundle.transfer, bundle.files, {
+      includeUploading: isOwner,
+    })
 
     if (view.status === "unavailable") {
-      return jsonError("This transfer isn't available.", 404, { status: "invalid" })
+      return jsonError("This transfer isn't available.", 404, {
+        status: "invalid",
+      })
     }
 
     return Response.json({

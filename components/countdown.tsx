@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 
 import { formatClock, formatRemaining, remainingMs } from "@/lib/expiration"
 import { cn } from "@/lib/utils"
@@ -16,14 +16,12 @@ export function Countdown({
   compact?: boolean
   urgent?: boolean
 }) {
-  const offsetRef = useRef(0)
-  if (serverNow) {
-    offsetRef.current = Date.now() - new Date(serverNow).getTime()
-  }
-  const [now, setNow] = useState(() => Date.now() - offsetRef.current)
-
+  const [now, setNow] = useState(() =>
+    serverNow ? new Date(serverNow).getTime() : 0
+  )
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now() - offsetRef.current), 250)
+    const offset = serverNow ? Date.now() - new Date(serverNow).getTime() : 0
+    const id = window.setInterval(() => setNow(Date.now() - offset), 1000)
     return () => window.clearInterval(id)
   }, [serverNow])
 
@@ -43,7 +41,7 @@ export function Countdown({
       className={cn("tabular-nums", (urgent || soon) && "text-amber-100/90")}
       aria-live="polite"
     >
-      {label}
+      {now ? label : "Calculating expiry…"}
     </span>
   )
 }

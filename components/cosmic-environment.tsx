@@ -8,31 +8,47 @@ import { NebulaField } from "@/components/nebula-field"
 import { SpaceTunnel } from "@/components/space-tunnel"
 import { cn } from "@/lib/utils"
 
-const SplashCursor = dynamic(() => import("@/components/react-bits/splash-cursor"), {
-  ssr: false,
-})
+const SplashCursor = dynamic(
+  () => import("@/components/react-bits/splash-cursor"),
+  {
+    ssr: false,
+  }
+)
 const Ballpit = dynamic(() => import("@/components/react-bits/ballpit"), {
   ssr: false,
 })
 
 export function CosmicEnvironment() {
   const { scene } = useAtmosphere()
-  const [enabled, setEnabled] = useState({ splash: false, balls: false, count: 36, drift: true })
+  const [enabled, setEnabled] = useState({
+    splash: false,
+    balls: false,
+    count: 36,
+    drift: true,
+  })
 
   useEffect(() => {
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    const coarse = window.matchMedia("(pointer: coarse)").matches
-    const mobile = window.matchMedia("(max-width: 768px)").matches
-    if (reduce) {
-      setEnabled({ splash: false, balls: false, count: 0, drift: false })
-      return
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const pointer = window.matchMedia("(pointer: coarse)")
+    const size = window.matchMedia("(max-width: 768px)")
+    const update = () => {
+      const low =
+        navigator.hardwareConcurrency <= 4 ||
+        (navigator as Navigator & { deviceMemory?: number }).deviceMemory! <= 4
+      setEnabled({
+        splash: !motion.matches && !pointer.matches && !low && !size.matches,
+        balls: !motion.matches,
+        count: low || size.matches ? 18 : pointer.matches ? 28 : 48,
+        drift: !motion.matches,
+      })
     }
-    setEnabled({
-      splash: !coarse,
-      balls: true,
-      count: mobile ? 22 : coarse ? 36 : 64,
-      drift: true,
-    })
+    update()
+    for (const query of [motion, pointer, size])
+      query.addEventListener("change", update)
+    return () => {
+      for (const query of [motion, pointer, size])
+        query.removeEventListener("change", update)
+    }
   }, [])
 
   const intense = scene === "uploading" || scene === "completing"
@@ -43,10 +59,12 @@ export function CosmicEnvironment() {
     <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#04080d]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,#083344_0%,#07131c_40%,#04080d_74%)]" />
       <NebulaField />
-      {enabled.drift ? <div className="cosmic-drift" aria-hidden="true" /> : null}
+      {enabled.drift ? (
+        <div className="cosmic-drift" aria-hidden="true" />
+      ) : null}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_16%,rgba(34,211,238,0.16),transparent_44%),radial-gradient(circle_at_82%_72%,rgba(56,189,248,0.14),transparent_38%),radial-gradient(circle_at_16%_84%,rgba(52,211,153,0.12),transparent_34%)]" />
       {enabled.splash ? (
-        <div className="absolute inset-0 mix-blend-screen opacity-[0.72]">
+        <div className="absolute inset-0 opacity-[0.72] mix-blend-screen">
           <SplashCursor />
         </div>
       ) : null}
@@ -63,8 +81,10 @@ export function CosmicEnvironment() {
             dropIn
               ? undefined
               : {
-                  maskImage: "linear-gradient(to top, black 46%, transparent 100%)",
-                  WebkitMaskImage: "linear-gradient(to top, black 46%, transparent 100%)",
+                  maskImage:
+                    "linear-gradient(to top, black 46%, transparent 100%)",
+                  WebkitMaskImage:
+                    "linear-gradient(to top, black 46%, transparent 100%)",
                 }
           }
         >

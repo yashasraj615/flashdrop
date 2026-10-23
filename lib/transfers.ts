@@ -18,18 +18,17 @@ import {
   type TransferFile,
 } from "@/lib/files"
 import { sanitizeFilename, storageContentType } from "@/lib/filenames"
-import { createManageToken, hashManageToken, manageTokensMatch } from "@/lib/manage"
+import {
+  createManageToken,
+  hashManageToken,
+  manageTokensMatch,
+} from "@/lib/manage"
 import { QuotaError, assertFitsQuota, remainingBytes } from "@/lib/quota"
 import { requireLifetimeSeconds, type LifetimeSeconds } from "@/lib/lifetime"
 import { createDownloadToken } from "@/lib/tokens"
 
 export type TransferStatus =
-  | "uploading"
-  | "active"
-  | "expired"
-  | "deleting"
-  | "deleted"
-  | "failed"
+  "uploading" | "active" | "expired" | "deleting" | "deleted" | "failed"
 
 export type TransferRecord = {
   id: string
@@ -38,6 +37,7 @@ export type TransferRecord = {
   status: TransferStatus
   totalSize: number
   lifetimeSeconds: number
+  mode: "quick" | "media"
   expiresAt: string | null
   uploadedAt: string | null
   deletedAt: string | null
@@ -50,7 +50,7 @@ export type TransferRecord = {
 }
 
 const TRANSFER_COLUMNS = `
-  id, token, manage_token_hash, status, total_size, lifetime_seconds, expires_at, uploaded_at, deleted_at,
+  id, token, manage_token_hash, status, total_size, lifetime_seconds, mode, expires_at, uploaded_at, deleted_at,
   download_count, last_downloaded_at, cleanup_attempts, last_cleanup_error, created_at, updated_at
 `
 
@@ -65,34 +65,48 @@ export class UploadValidationError extends Error {
 
 export class ManageAuthError extends Error {
   constructor() {
-    super("You can view this transfer, but only the original sender can add files.")
+    super(
+      "You can view this transfer, but only the original sender can add files."
+    )
     this.name = "ManageAuthError"
   }
 }
 
 function mapTransfer(row: Row): TransferRecord {
   return {
+    mode: row.mode === "media" ? "media" : "quick",
     id: String(row.id),
     token: String(row.token),
     manageTokenHash: String(row.manage_token_hash),
     status: String(row.status) as TransferStatus,
     totalSize: toNumber(row.total_size),
     lifetimeSeconds: toNumber(row.lifetime_seconds) || 3600,
-    expiresAt: row.expires_at ? new Date(String(row.expires_at)).toISOString() : null,
-    uploadedAt: row.uploaded_at ? new Date(String(row.uploaded_at)).toISOString() : null,
-    deletedAt: row.deleted_at ? new Date(String(row.deleted_at)).toISOString() : null,
+    expiresAt: row.expires_at
+      ? new Date(String(row.expires_at)).toISOString()
+      : null,
+    uploadedAt: row.uploaded_at
+      ? new Date(String(row.uploaded_at)).toISOString()
+      : null,
+    deletedAt: row.deleted_at
+      ? new Date(String(row.deleted_at)).toISOString()
+      : null,
     downloadCount: toNumber(row.download_count),
     lastDownloadedAt: row.last_downloaded_at
       ? new Date(String(row.last_downloaded_at)).toISOString()
       : null,
     cleanupAttempts: toNumber(row.cleanup_attempts),
-    lastCleanupError: row.last_cleanup_error ? String(row.last_cleanup_error) : null,
+    lastCleanupError: row.last_cleanup_error
+      ? String(row.last_cleanup_error)
+      : null,
     createdAt: new Date(String(row.created_at)).toISOString(),
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   }
 }
 
-export function publicTransferStatus(transfer: TransferRecord, now = new Date()) {
+export function publicTransferStatus(
+  transfer: TransferRecord,
+  now = new Date()
+) {
   if (transfer.status === "deleted" || transfer.status === "failed") {
     return "unavailable" as const
   }
@@ -113,13 +127,21 @@ export function publicTransferView(
   options: { includeUploading?: boolean } = {}
 ) {
   const visible = options.includeUploading
-    ? files.filter((file) => file.status !== "deleted" && file.status !== "failed")
+    ? files.filter(
+        (file) => file.status !== "deleted" && file.status !== "failed"
+      )
     : files.filter((file) => file.status === "active")
   const used = visible
-    .filter((file) => file.status === "active" || file.status === "uploading" || file.status === "processing")
+    .filter(
+      (file) =>
+        file.status === "active" ||
+        file.status === "uploading" ||
+        file.status === "processing"
+    )
     .reduce((sum, file) => sum + file.fileSize, 0)
 
   return {
+    mode: transfer.mode,
     token: transfer.token,
     status: publicTransferStatus(transfer),
     totalSize: used,
@@ -151,7 +173,10 @@ export async function getTransferBundle(token: string) {
   return { transfer, files }
 }
 
-export function assertManager(transfer: TransferRecord, manageToken: string | null | undefined) {
+export function assertManager(
+  transfer: TransferRecord,
+  manageToken: string | null | undefined
+) {
   if (!manageTokensMatch(manageToken, transfer.manageTokenHash)) {
     throw new ManageAuthError()
   }
@@ -168,11 +193,13 @@ function preparedFiles(input: IncomingFile[]) {
     throw new UploadValidationError("Choose a file to upload.")
   }
   return input.map((file) => {
-    if (!Number.isFinite(file.size) || file.size <= 0) {
+    if (!Number.isSafeInteger(file.size) || file.size <= 0) {
       throw new UploadValidationError("Choose a file to upload.")
     }
     if (file.size > MAX_TRANSFER_SIZE_BYTES) {
-      throw new UploadValidationError("That file can't be added. Each transfer is limited to 1 GB in total.")
+      throw new UploadValidationError(
+        "That file can't be added. Each transfer is limited to 1 GB in total."
+      )
     }
     return {
       filename: sanitizeFilename(file.filename),
@@ -185,44 +212,71 @@ function preparedFiles(input: IncomingFile[]) {
   })
 }
 
-async function insertFileRows(transferId: string, files: ReturnType<typeof preparedFiles>) {
+async function insertFileRows(
+  transferId: string,
+  files: ReturnType<typeof preparedFiles>
+) {
   const sql = getSql()
-  const created: TransferFile[] = []
-  for (const file of files) {
+  try {
     const rows = await sql.query(
-      `INSERT INTO transfer_files (
-         transfer_id, object_key, original_filename, mime_type, file_size,
-         encrypted_size, chunk_size, encryption_version, status
-       )
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, 'uploading')
-       RETURNING id, transfer_id, object_key, original_filename, mime_type, file_size,
-         encrypted_size, chunk_size, encryption_version, multipart_upload_id, status,
-         uploaded_at, deleted_at, download_count, last_downloaded_at, created_at, updated_at`,
+      `INSERT INTO transfer_files (transfer_id, object_key, original_filename, mime_type, file_size, encrypted_size, chunk_size, encryption_version, status)
+       SELECT $1::uuid, f.object_key, f.filename, f.mime_type, f.size, f.encrypted_size, f.chunk_size, $3, 'uploading'
+       FROM jsonb_to_recordset($2::jsonb) AS f(object_key text, filename text, mime_type text, size bigint, encrypted_size bigint, chunk_size integer)
+       RETURNING id, transfer_id, object_key, original_filename, mime_type, file_size, encrypted_size, chunk_size, encryption_version, multipart_upload_id, status, uploaded_at, deleted_at, download_count, last_downloaded_at, created_at, updated_at`,
       [
         transferId,
-        file.objectKey,
-        file.filename,
-        file.mimeType,
-        file.size,
-        file.encryptedSize,
-        file.chunkSize,
+        JSON.stringify(
+          files.map((f) => ({
+            object_key: f.objectKey,
+            filename: f.filename,
+            mime_type: f.mimeType,
+            size: f.size,
+            encrypted_size: f.encryptedSize,
+            chunk_size: f.chunkSize,
+          }))
+        ),
         ENCRYPTION_VERSION,
       ]
     )
-    created.push(mapFile(rows[0] as Row))
+    return files.map((file) =>
+      mapFile(rows.find((row) => row.object_key === file.objectKey) as Row)
+    )
+  } catch (e) {
+    const message = e instanceof Error ? e.message : ""
+    if (message.includes("FLASHDROP_QUOTA"))
+      throw new UploadValidationError(
+        "This transfer supports at most 1 GB and 100 files. Refresh it and choose a smaller selection."
+      )
+    if (message.includes("FLASHDROP_CLOSED"))
+      throw new UploadValidationError(
+        "This transfer has expired or is unavailable. Create a new transfer."
+      )
+    throw e
   }
-  return created
 }
 
-export async function createTransfer(input: IncomingFile[], lifetimeSeconds?: unknown) {
+export async function createTransfer(
+  input: IncomingFile[],
+  lifetimeSeconds?: unknown,
+  mode: "quick" | "media" = "quick"
+) {
   const files = preparedFiles(input)
+  if (
+    mode === "media" &&
+    input.some((f) => !/^(image|video)\//i.test(f.mimeType || ""))
+  )
+    throw new UploadValidationError(
+      "Photos & Videos accepts images and videos. Use Quick Transfer for other files."
+    )
   const requested = files.reduce((sum, file) => sum + file.size, 0)
   let lifetime: LifetimeSeconds
   try {
     lifetime = requireLifetimeSeconds(lifetimeSeconds ?? 3600)
   } catch (error) {
     throw new UploadValidationError(
-      error instanceof Error ? error.message : "Choose a transfer lifetime between 5 minutes and 5 hours."
+      error instanceof Error
+        ? error.message
+        : "Choose a transfer lifetime between 5 minutes and 5 hours."
     )
   }
   assertFitsQuota({
@@ -240,10 +294,10 @@ export async function createTransfer(input: IncomingFile[], lifetimeSeconds?: un
     const token = createDownloadToken()
     try {
       const rows = await sql.query(
-        `INSERT INTO transfers (token, manage_token_hash, status, total_size, lifetime_seconds)
-         VALUES ($1, $2, 'uploading', 0, $3)
+        `INSERT INTO transfers (token, manage_token_hash, status, total_size, lifetime_seconds, mode)
+         VALUES ($1, $2, 'uploading', 0, $3, $4)
          RETURNING ${TRANSFER_COLUMNS}`,
-        [token, manageTokenHash, lifetime]
+        [token, manageTokenHash, lifetime, mode]
       )
       const transfer = mapTransfer(rows[0] as Row)
       const createdFiles = await insertFileRows(transfer.id, files)
@@ -271,10 +325,19 @@ export async function addFilesToTransfer(
   assertManager(transfer, manageToken)
 
   if (publicTransferStatus(transfer) === "expired") {
-    throw new UploadValidationError("This transfer has expired. Temporary files are automatically removed when the transfer expires.")
+    throw new UploadValidationError(
+      "This transfer has expired. Temporary files are automatically removed when the transfer expires."
+    )
   }
 
   const files = preparedFiles(input)
+  if (
+    transfer.mode === "media" &&
+    input.some((f) => !/^(image|video)\//i.test(f.mimeType || ""))
+  )
+    throw new UploadValidationError(
+      "Choose photos and videos for this collection."
+    )
   const reserved = await reservedSizeForTransfer(transfer.id)
   const requested = files.reduce((sum, file) => sum + file.size, 0)
   assertFitsQuota({

@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getSql } from "@/lib/db"
 import { abortMultipartUpload, deleteObject } from "@/lib/storage"
 import { listFilesForTransfer, type TransferFile } from "@/lib/files"
 import { logError, logEvent } from "@/lib/logger"
@@ -23,12 +24,16 @@ export type CleanupResult = {
 
 async function removeStoredObject(file: TransferFile) {
   if (file.multipartUploadId) {
-    await abortMultipartUpload(file.objectKey, file.multipartUploadId).catch(() => undefined)
+    await abortMultipartUpload(file.objectKey, file.multipartUploadId).catch(
+      () => undefined
+    )
   }
   await deleteObject(file.objectKey)
 }
 
-async function cleanupOne(transfer: TransferRecord): Promise<"deleted" | "retried" | "failed"> {
+async function cleanupOne(
+  transfer: TransferRecord
+): Promise<"deleted" | "retried" | "failed"> {
   const target = await markTransferDeleting(transfer.id)
   const current = target ?? transfer
   const files = await listFilesForTransfer(current.id)
@@ -38,7 +43,10 @@ async function cleanupOne(transfer: TransferRecord): Promise<"deleted" | "retrie
       await removeStoredObject(file)
     }
     await deleteTransferRecord(current.id)
-    logEvent("cleanup.transfer_deleted", { transferId: current.id, files: files.length })
+    logEvent("cleanup.transfer_deleted", {
+      transferId: current.id,
+      files: files.length,
+    })
     return "deleted"
   } catch (error) {
     const message = error instanceof Error ? error.message : "Cleanup failed"
@@ -76,6 +84,9 @@ export async function runCleanup(): Promise<CleanupResult> {
       }
     }
 
+    const sql = getSql()
+    await sql`DELETE FROM text_pads WHERE expires_at <= NOW()`
+    await sql`DELETE FROM wide_sessions WHERE expires_at <= NOW() OR last_activity <= NOW() - INTERVAL '2 hours' OR finished_at <= NOW() - INTERVAL '1 hour'`
     await pruneRateLimits()
     await recordCleanupRun(stats)
     logEvent("cleanup.completed", stats)

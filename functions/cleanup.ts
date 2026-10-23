@@ -59,7 +59,10 @@ export default {
           WHERE transfer_id = ${transfer.id}::uuid
         `
         for (const file of files) {
-          await removeObject(String(file.object_key), file.multipart_upload_id ? String(file.multipart_upload_id) : null)
+          await removeObject(
+            String(file.object_key),
+            file.multipart_upload_id ? String(file.multipart_upload_id) : null
+          )
         }
         await sql`DELETE FROM transfers WHERE id = ${transfer.id}::uuid`
         deleted += 1
@@ -68,6 +71,13 @@ export default {
       }
     }
 
-    return Response.json({ ok: true, scanned: transfers.length, deleted, failed })
+    await sql`DELETE FROM text_pads WHERE expires_at <= NOW()`
+    await sql`DELETE FROM wide_sessions WHERE expires_at <= NOW() OR last_activity <= NOW() - INTERVAL '2 hours' OR finished_at <= NOW() - INTERVAL '1 hour'`
+    return Response.json({
+      ok: true,
+      scanned: transfers.length,
+      deleted,
+      failed,
+    })
   },
 }

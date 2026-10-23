@@ -8,7 +8,7 @@ export function NebulaField() {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
@@ -27,25 +27,38 @@ export function NebulaField() {
 
     const blobs = [
       { x: 0.5, y: 0.18, r: 0.42, color: "34, 211, 238", ox: 0.018, oy: 0.012 },
-      { x: 0.78, y: 0.62, r: 0.34, color: "56, 189, 248", ox: -0.016, oy: 0.014 },
-      { x: 0.2, y: 0.78, r: 0.36, color: "45, 212, 191", ox: 0.012, oy: -0.018 },
+      {
+        x: 0.78,
+        y: 0.62,
+        r: 0.34,
+        color: "56, 189, 248",
+        ox: -0.016,
+        oy: 0.014,
+      },
+      {
+        x: 0.2,
+        y: 0.78,
+        r: 0.36,
+        color: "45, 212, 191",
+        ox: 0.012,
+        oy: -0.018,
+      },
       { x: 0.42, y: 0.48, r: 0.22, color: "52, 211, 153", ox: -0.01, oy: 0.01 },
     ]
 
     const draw = (now: number) => {
       if (!running) return
-      if (document.hidden) {
-        frame = requestAnimationFrame(draw)
-        return
-      }
-      const t = reduce ? 0 : (now - started) / 1000
+      frame = 0
+      if (document.hidden) return
+      const t = motion.matches ? 0 : (now - started) / 1000
       const width = canvas.width
       const height = canvas.height
       ctx.clearRect(0, 0, width, height)
       ctx.globalCompositeOperation = "lighter"
       for (const blob of blobs) {
         const x = (blob.x + Math.sin(t * 0.18 + blob.ox * 40) * blob.ox) * width
-        const y = (blob.y + Math.cos(t * 0.14 + blob.oy * 40) * blob.oy) * height
+        const y =
+          (blob.y + Math.cos(t * 0.14 + blob.oy * 40) * blob.oy) * height
         const radius = blob.r * Math.max(width, height)
         const glow = ctx.createRadialGradient(x, y, 0, x, y, radius)
         glow.addColorStop(0, `rgba(${blob.color}, 0.28)`)
@@ -57,11 +70,20 @@ export function NebulaField() {
         ctx.fill()
       }
       ctx.globalCompositeOperation = "source-over"
-      frame = requestAnimationFrame(draw)
+      if (!motion.matches) frame = requestAnimationFrame(draw)
     }
     frame = requestAnimationFrame(draw)
 
+    const resume = () => {
+      cancelAnimationFrame(frame)
+      frame = 0
+      if (!document.hidden) frame = requestAnimationFrame(draw)
+    }
+    document.addEventListener("visibilitychange", resume)
+    motion.addEventListener("change", resume)
     return () => {
+      document.removeEventListener("visibilitychange", resume)
+      motion.removeEventListener("change", resume)
       running = false
       cancelAnimationFrame(frame)
       window.removeEventListener("resize", resize)

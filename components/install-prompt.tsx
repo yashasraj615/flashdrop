@@ -17,9 +17,9 @@ export function InstallPrompt() {
   useEffect(() => {
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
+      ("standalone" in navigator &&
+        Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
     if (standalone) {
-      setInstalled(true)
       return
     }
     const onPrompt = (incoming: Event) => {

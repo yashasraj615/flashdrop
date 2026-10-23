@@ -222,17 +222,17 @@ class X {
 
  #onIntersection(entries: IntersectionObserverEntry[]) {
  this.#isAnimating = entries[0].isIntersecting;
- this.#isAnimating ? this.#startAnimation() : this.#stopAnimation();
+ if (this.#isAnimating) this.#startAnimation(); else this.#stopAnimation();
  }
 
  #onVisibilityChange() {
  if (this.#isAnimating) {
- document.hidden ? this.#stopAnimation() : this.#startAnimation();
+ if (document.hidden) this.#stopAnimation(); else this.#startAnimation();
  }
  }
 
  #startAnimation() {
- if (this.isDisposed || this.#isVisible) return;
+ if (this.isDisposed || this.#isVisible || document.hidden) return;
  const animateFrame = () => {
  if (this.isDisposed || !this.#isVisible) return;
  this.#animationFrameId = requestAnimationFrame(animateFrame);
@@ -284,6 +284,7 @@ class X {
  this.clear();
  this.#postprocessing?.dispose();
  this.renderer.dispose();
+ this.renderer.forceContextLoss();
  }
 
  #onResizeCleanup() {
@@ -685,13 +686,15 @@ class Z extends InstancedMesh {
  const config = { ...XConfig, ...params };
  const roomEnv = new RoomEnvironment();
  const pmrem = new PMREMGenerator(renderer);
- const envTexture = pmrem.fromScene(roomEnv).texture;
+ const envTarget = pmrem.fromScene(roomEnv);
+ const envTexture = envTarget.texture;
  const geometry = new SphereGeometry();
  const material = new Y({ envMap: envTexture, ...config.materialParams });
  material.envMapRotation.x = -Math.PI / 2;
  super(geometry, material, config.count);
  this.config = config;
  this.physics = new W(config);
+ this._envTarget = envTarget;
  this._roomEnv = roomEnv;
  this._pmrem = pmrem;
  this.#setupLights();
@@ -699,6 +702,8 @@ class Z extends InstancedMesh {
  }
 
  releaseEnv() {
+ this._envTarget?.dispose();
+ this._envTarget = null;
  this._roomEnv?.dispose?.();
  this._pmrem?.dispose?.();
  this._roomEnv = null;
@@ -805,7 +810,7 @@ function createBallpit(canvas: HTMLCanvasElement, config: any = {}): CreateBallp
  canvas.style.userSelect = 'none';
  (canvas.style as any).webkitUserSelect = 'none';
 
- let pointerData = createPointerData({
+ const pointerData = createPointerData({
   domElement: canvas,
   onMove() {
    if (Number(document.documentElement.dataset.pointerEnv || "0") > 0.42) {
@@ -916,8 +921,7 @@ const Ballpit: React.FC<BallpitProps> = ({
  const rainedRef = useRef(false);
  const dropInRef = useRef(dropIn);
  const playfulRef = useRef(playful);
- dropInRef.current = dropIn;
- playfulRef.current = playful;
+ useEffect(() => {dropInRef.current = dropIn; playfulRef.current = playful;}, [dropIn,playful]);
 
  useEffect(() => {
  const canvas = canvasRef.current;
