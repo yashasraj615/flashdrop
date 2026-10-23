@@ -14,7 +14,7 @@
 1. Preserve encrypted file APIs and assets; fix lifecycle and cursor costs.
 2. Add responsive mode selection and original-media selection, previews and removal.
 3. Add bounded Text Pad API/schema, safe Markdown and recipient page.
-4. Add scoped Wide Connect sessions with atomic recipient claim, sender approval, expiring HTTPS polling signaling and optional TURN credentials.
+4. Add scoped Wide Connect sessions with atomic recipient claim, sender approval, expiring HTTPS polling signaling and STUN-assisted direct WebRTC.
 5. Add ordered WebRTC chunk protocol, persisted local partial data, integrity-checked acknowledgements, retry/resume and honest capability messages.
 6. Test backend boundaries and protocol; typecheck, lint and build. Validate additive migrations on a Neon branch. Document deployment/configuration and verification limits.
 

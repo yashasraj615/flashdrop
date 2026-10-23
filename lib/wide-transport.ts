@@ -1,3 +1,4 @@
+import { directIceConfiguration } from "@/lib/wide-ice"
 import { WIDE_CHUNK_BYTES, validOffset, type WideFile } from "@/lib/mode-limits"
 import {
   chainPrefix,
@@ -86,14 +87,13 @@ export class WideTransport {
     public token: string,
     public manifest: WideFile[],
     public sources: File[],
-    servers: RTCIceServer[],
     public hooks: Hooks
   ) {
-    this.pc = new RTCPeerConnection({ iceServers: servers })
+    this.pc = new RTCPeerConnection(directIceConfiguration())
     this.watchdog = setTimeout(
       () =>
         this.fail(
-          "The devices could not connect. Retry, disable a restrictive VPN, or try another network. A configured TURN relay may be required."
+          "A direct connection could not be established on these networks. Check VPN/firewall settings, try another network on either device, then choose Retry connection."
         ),
       60000
     )
@@ -115,46 +115,9 @@ export class WideTransport {
     if (owner)
       this.bind(this.pc.createDataChannel("flashdrop-v1", { ordered: true }))
   }
-  async connectionRoute() {
-    try {
-      const stats = await this.pc.getStats()
-      let selected:
-        { localCandidateId?: string; remoteCandidateId?: string } | undefined
-      stats.forEach((r) => {
-        if (r.type === "transport" && r.selectedCandidatePairId)
-          selected = stats.get(r.selectedCandidatePairId)
-      })
-      if (!selected)
-        stats.forEach((r) => {
-          if (
-            r.type === "candidate-pair" &&
-            r.nominated &&
-            r.state === "succeeded"
-          )
-            selected = r
-        })
-      const local = selected?.localCandidateId
-          ? stats.get(selected.localCandidateId)
-          : undefined,
-        remote = selected?.remoteCandidateId
-          ? stats.get(selected.remoteCandidateId)
-          : undefined
-      const known = Boolean(local?.candidateType && remote?.candidateType)
-      const relay =
-        local?.candidateType === "relay" || remote?.candidateType === "relay"
-      this.hooks.status(
-        relay
-          ? "Connected · Encrypted TURN relay · Bandwidth and speed depend on the relay"
-          : known
-            ? "Connected · Direct encrypted device connection"
-            : "Connected · Encrypted channel · Route details unavailable"
-      )
-    } catch {
-      if (!this.closed)
-        this.hooks.status(
-          "Connected · Encrypted channel · Route details unavailable"
-        )
-    }
+  connectionRoute() {
+    if (!this.closed)
+      this.hooks.status("Connected · Direct encrypted device connection")
   }
   async initStore() {
     if (!this.owner) {

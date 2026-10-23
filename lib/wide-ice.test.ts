@@ -1,74 +1,123 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-vi.mock("server-only", () => ({}))
-import { iceServers, relayConfigured } from "./wide-ice"
-beforeEach(() => {
-  for (const key of [
-    "CLOUDFLARE_TURN_KEY_ID",
-    "CLOUDFLARE_TURN_API_TOKEN",
-    "WIDE_TURN_SECRET",
-    "WIDE_TURN_URLS",
-    "WIDE_STUN_URL",
-  ])
-    vi.stubEnv(key, "")
-})
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { directIceConfiguration } from "./wide-ice"
+import { WideTransport } from "./wide-transport"
 afterEach(() => {
   vi.unstubAllGlobals()
-  vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
-describe("scoped ICE credentials", () => {
-  it("makes no relay claim without a configured provider", async () => {
-    expect(relayConfigured()).toBe(false)
-    expect(await iceServers()).toHaveLength(1)
-  })
-  it("uses standard short-lived TURN REST credentials", async () => {
-    vi.stubEnv("WIDE_TURN_SECRET", "server-secret")
-    vi.stubEnv("WIDE_TURN_URLS", "turn:relay.example:3478")
-    const s = await iceServers()
-    expect(s[1].username).toMatch(/^\d+:flashdrop$/)
-    expect(s[1].credential).not.toContain("server-secret")
-  })
-  it("calls the managed provider only server-side and filters browser-blocked ports", async () => {
-    vi.stubEnv("CLOUDFLARE_TURN_KEY_ID", "a".repeat(32))
-    vi.stubEnv("CLOUDFLARE_TURN_API_TOKEN", "scoped-api-secret")
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          iceServers: [
-            {
-              urls: [
-                "turn:turn.cloudflare.com:3478?transport=udp",
-                "turn:turn.cloudflare.com:53?transport=udp",
-              ],
-              username: "temporary-user",
-              credential: "temporary-password",
-            },
-          ],
-        })
-      )
-    vi.stubGlobal("fetch", fetch)
-    const servers = await iceServers()
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(servers[1].urls).toEqual([
-      "turn:turn.cloudflare.com:3478?transport=udp",
-    ])
-    expect(JSON.stringify(servers)).not.toContain("scoped-api-secret")
-  })
-  it("returns a professional failure without leaking provider credentials or response details", async () => {
-    vi.stubEnv("CLOUDFLARE_TURN_KEY_ID", "a".repeat(32))
-    vi.stubEnv("CLOUDFLARE_TURN_API_TOKEN", "scoped-api-secret")
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response("private-provider-debug", { status: 403 })
-        )
-    )
-    await expect(iceServers()).rejects.toMatchObject({
-      status: 503,
-      message:
-        "The configured relay is temporarily unavailable. Retry shortly or try another network.",
+describe("direct WebRTC configuration", () => {
+  it("uses only the documented public STUN endpoint without credentials", () => {
+    const configuration = directIceConfiguration()
+    expect(configuration).toEqual({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     })
+    for (const server of configuration.iceServers!) {
+      for (const url of [server.urls].flat()) {
+        expect(url).toMatch(/^stun:/)
+        expect(url).not.toMatch(/^turns?:/i)
+      }
+      expect(server).not.toHaveProperty("username")
+      expect(server).not.toHaveProperty("credential")
+    }
+  })
+  it("needs no environment variables and returns independent configurations", () => {
+    vi.stubGlobal("process", { ...process, env: {} })
+    const first = directIceConfiguration()
+    first.iceServers![0].urls = "stun:invalid.example"
+    expect(directIceConfiguration().iceServers![0].urls).toBe(
+      "stun:stun.l.google.com:19302"
+    )
+  })
+  it("constructs peers from the authoritative configuration and reports actionable timeout", () => {
+    vi.useFakeTimers()
+    const configurations: RTCConfiguration[] = []
+    const channel = { close: vi.fn() }
+    const close = vi.fn()
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      class {
+        constructor(configuration: RTCConfiguration) {
+          configurations.push(configuration)
+        }
+        createDataChannel() {
+          return channel
+        }
+        close = close
+      }
+    )
+    const error = vi.fn()
+    const peer = new WideTransport(true, "session", [], [], {
+      progress: vi.fn(),
+      status: vi.fn(),
+      complete: vi.fn(),
+      error,
+    })
+    expect(configurations).toEqual([directIceConfiguration()])
+    vi.advanceTimersByTime(60000)
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /direct connection.*another network.*Retry connection/
+      )
+    )
+    expect(peer.closed).toBe(true)
+    expect(close).toHaveBeenCalledOnce()
+  })
+  it("awaits gathered candidates before publishing offer and answer SDP", async () => {
+    class Peer extends EventTarget {
+      iceGatheringState = "gathering"
+      localDescription: { toJSON: () => RTCSessionDescriptionInit } | null =
+        null
+      remoteDescription: RTCSessionDescriptionInit | null = null
+      createDataChannel() {
+        return { close: vi.fn() }
+      }
+      async createOffer() {
+        return { type: "offer" as const, sdp: "initial" }
+      }
+      async createAnswer() {
+        return { type: "answer" as const, sdp: "initial" }
+      }
+      async setLocalDescription(value: RTCSessionDescriptionInit) {
+        this.localDescription = {
+          toJSON: () => ({ ...value, sdp: "gathered-candidates" }),
+        }
+      }
+      async setRemoteDescription(value: RTCSessionDescriptionInit) {
+        this.remoteDescription = value
+      }
+      close() {}
+    }
+    vi.stubGlobal("RTCPeerConnection", Peer)
+    for (const owner of [true, false]) {
+      const peer = new WideTransport(owner, "session", [], [], {
+        progress: vi.fn(),
+        status: vi.fn(),
+        complete: vi.fn(),
+        error: vi.fn(),
+      })
+      try {
+        let resolved = false
+        const signaling = (
+          owner
+            ? peer.offer()
+            : peer.answer({ type: "offer", sdp: "remote-candidates" })
+        ).then((value) => {
+          resolved = true
+          return value
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(resolved).toBe(false)
+        const pc = peer.pc as unknown as Peer
+        pc.iceGatheringState = "complete"
+        pc.dispatchEvent(new Event("icegatheringstatechange"))
+        expect(await signaling).toEqual({
+          type: owner ? "offer" : "answer",
+          sdp: "gathered-candidates",
+        })
+        if (!owner) expect(pc.remoteDescription?.sdp).toBe("remote-candidates")
+      } finally {
+        peer.close()
+      }
+    }
   })
 })

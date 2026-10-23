@@ -175,9 +175,9 @@ async function pair(source: File, token = "test") {
       error = e
     },
   }
-  const receiver = new WideTransport(false, token, manifest, [], [], hooks)
+  const receiver = new WideTransport(false, token, manifest, [], hooks)
   await receiver.initStore()
-  const sender = new WideTransport(true, token, manifest, [source], [], {
+  const sender = new WideTransport(true, token, manifest, [source], {
     ...hooks,
     complete: () => {
       senderDone = true

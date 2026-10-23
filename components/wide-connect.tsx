@@ -29,8 +29,6 @@ type Snapshot = {
   progress?: WideProgress
   offer?: RTCSessionDescriptionInit
   answer?: RTCSessionDescriptionInit
-  iceServers?: RTCIceServer[]
-  relayAvailable: boolean
 }
 type Credential = { role: "owner" | "recipient"; key: string; invite?: string }
 function capability() {
@@ -157,7 +155,6 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
             ...local,
             status: "closed",
             generation: 0,
-            relayAvailable: false,
           })
           setFinished(true)
           setStatus(
@@ -234,67 +231,59 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
             0
           ),
         }
-        const ice = await request("ice")
-        transport = new WideTransport(
-          owner,
-          token,
-          s.files,
-          sources.current,
-          ice.iceServers,
-          {
-            status: (text) => {
-              if (mounted.current) {
-                if (text.startsWith("Connected ·")) setConnectionRoute(text)
-                else setStatus(text)
-              }
-            },
-            progress: (p, n) => {
-              localProgress.current = p
-              if (mounted.current) {
-                setProgress(p)
-                setSent(n)
-                const bytes = Object.values(p).reduce(
-                  (sum, v) => sum + v.offset,
-                  0
-                )
-                setRate(
-                  Math.max(0, bytes - started.current.bytes) /
-                    Math.max(1, (Date.now() - started.current.time) / 1000)
-                )
-              }
-              void persist().catch(() => {
-                if (mounted.current)
-                  setMessage(
-                    "Progress is safe on this device; backend sync is delayed. Keep the tab open and retry if the connection stops."
-                  )
-              })
-            },
-            complete: () => {
-              setActive(false)
-              setStatus("Complete · Every file verified and received")
-              void persist(true).catch(() =>
-                setMessage(
-                  "Files arrived, but completion metadata could not be synced. Keep local files and reconnect to update session status."
-                )
+        transport = new WideTransport(owner, token, s.files, sources.current, {
+          status: (text) => {
+            if (mounted.current) {
+              if (text.startsWith("Connected ·")) setConnectionRoute(text)
+              else setStatus(text)
+            }
+          },
+          progress: (p, n) => {
+            localProgress.current = p
+            if (mounted.current) {
+              setProgress(p)
+              setSent(n)
+              const bytes = Object.values(p).reduce(
+                (sum, v) => sum + v.offset,
+                0
               )
-              void request()
-                .then((d) => {
-                  setSnapshot(d)
-                  latest.current = d
-                })
-                .catch(() => undefined)
-            },
-            error: (text) => {
-              if (mounted.current) {
-                setMessage(text)
-                setStatus("Interrupted · Verified chunks are retained locally")
-                setActive(false)
-                setBusy(false)
-              }
-              void request("interrupt").catch(() => undefined)
-            },
-          }
-        )
+              setRate(
+                Math.max(0, bytes - started.current.bytes) /
+                  Math.max(1, (Date.now() - started.current.time) / 1000)
+              )
+            }
+            void persist().catch(() => {
+              if (mounted.current)
+                setMessage(
+                  "Progress is safe on this device; backend sync is delayed. Keep the tab open and retry if the connection stops."
+                )
+            })
+          },
+          complete: () => {
+            setActive(false)
+            setStatus("Complete · Every file verified and received")
+            void persist(true).catch(() =>
+              setMessage(
+                "Files arrived, but completion metadata could not be synced. Keep local files and reconnect to update session status."
+              )
+            )
+            void request()
+              .then((d) => {
+                setSnapshot(d)
+                latest.current = d
+              })
+              .catch(() => undefined)
+          },
+          error: (text) => {
+            if (mounted.current) {
+              setMessage(text)
+              setStatus("Interrupted · Verified chunks are retained locally")
+              setActive(false)
+              setBusy(false)
+            }
+            void request("interrupt").catch(() => undefined)
+          },
+        })
         connection.current = transport
         await transport.initStore()
         if (owner) {
@@ -663,8 +652,8 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
       <p className="text-sm leading-6 text-white/65">
         Up to 20 GB directly between connected devices. Flashdrop stores only
         session, file and progress metadata. File contents travel through
-        encrypted WebRTC; a configured TURN relay may forward traffic without
-        storing it.
+        encrypted, direct WebRTC. Some restrictive networks cannot connect. Try
+        another network and retry if needed.
       </p>
       <div role="status" className="mode-notice">
         <span
@@ -774,10 +763,9 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
             ) : (
               <>
                 Session expires {new Date(snapshot.expiresAt).toLocaleString()}{" "}
-                or after 2 hours without device activity.{" "}
-                {snapshot.relayAvailable
-                  ? "TURN fallback is configured."
-                  : "TURN fallback is not configured; some networks will not connect. Try another network if needed."}
+                or after 2 hours without device activity. Direct connections may
+                fail on restrictive networks. Try another network on either
+                device, then choose Retry connection.
               </>
             )}
           </p>

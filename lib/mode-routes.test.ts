@@ -163,7 +163,7 @@ describe("Wide Connect authorization boundaries", () => {
     expect(database.queries[0].sql).toContain("expires_at > NOW()")
     expect(database.queries[0].sql).toContain("INTERVAL '2 hours'")
   })
-  it("invitation alone never discloses SDP, pairing code, progress or TURN credentials", async () => {
+  it("invitation alone never discloses SDP, pairing code, progress", async () => {
     database.rows = [session()]
     const r = await wideGet(request(invite), params),
       body = await r.json()
@@ -178,6 +178,17 @@ describe("Wide Connect authorization boundaries", () => {
       "recipient_hash",
     ])
       expect(body).not.toHaveProperty(key)
+  })
+  it("does not serve dynamic ICE configuration to any session role", async () => {
+    database.rows = [session()]
+    for (const access of [owner, recipient, invite]) {
+      const response = await widePost(
+        request(access, { action: "ice" }),
+        params
+      )
+      expect(response.status).toBe(403)
+      expect(await response.json()).not.toHaveProperty("iceServers")
+    }
   })
   it("a recipient cannot approve itself or send an owner offer", async () => {
     database.rows = [session("pending")]
@@ -249,7 +260,7 @@ describe("Wide Connect authorization boundaries", () => {
         status: 410,
       })
   })
-  it("never issues signaling or relay credentials for completed sessions", async () => {
+  it("never issues signaling for completed sessions", async () => {
     database.rows = [session("complete")]
     const body = await (await wideGet(request(recipient), params)).json()
     expect(body).not.toHaveProperty("offer")

@@ -122,10 +122,6 @@ assert.equal(
 )
 const accepted = await call(path, { access: recipient })
 assert.equal(accepted.body.offer.sdp, offer.sdp)
-assert.ok(
-  (await call(path, { access: recipient, body: { action: "ice" } })).body
-    .iceServers
-)
 assert.equal((await call(path, { access: invite })).body.offer, undefined)
 assert.equal(
   (

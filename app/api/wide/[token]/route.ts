@@ -12,7 +12,6 @@ import {
 import { validOffset, type WideFile } from "@/lib/mode-limits"
 import { clientIp, enforceRateLimit } from "@/lib/rate-limit"
 import { wideSession } from "@/lib/wide-server"
-import { iceServers, relayConfigured } from "@/lib/wide-ice"
 export const runtime = "nodejs"
 type Context = { params: Promise<{ token: string }> }
 async function context(request: Request, ctx: Context) {
@@ -51,7 +50,6 @@ export async function GET(request: Request, ctx: Context) {
       progress: role === "invite" ? undefined : row.progress,
       offer: role === "recipient" && approved ? row.offer : undefined,
       answer: role === "owner" && approved ? row.answer : undefined,
-      relayAvailable: relayConfigured(),
     })
   } catch (e) {
     return modeError(e)
@@ -63,17 +61,7 @@ export async function POST(request: Request, ctx: Context) {
       sql = getSql(),
       body = await boundedJson(request, 128 * 1024)
     const active = ["approved", "interrupted"].includes(String(row.status))
-    if (body.action === "ice" && role !== "invite" && active) {
-      await enforceRateLimit({
-        key: `wide-ice:${token}:${role}`,
-        limit: 30,
-        windowMs: 3600000,
-      })
-      return privateJson({
-        iceServers: await iceServers(),
-        relayAvailable: relayConfigured(),
-      })
-    } else if (body.action === "accept" && role === "invite") {
+    if (body.action === "accept" && role === "invite") {
       if (!validCapability(body.recipient))
         throw new ModeError("Recipient credential is invalid.")
       const code = String(randomInt(100000, 1000000))

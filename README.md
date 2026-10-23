@@ -7,7 +7,7 @@ Four transfer modes in the existing cyan/aqua Next.js application.
 | Quick Transfer  | 1 GiB / 100 files                | Browser-encrypted originals in private Neon Object Storage             | 5, 10, 30 minutes; 1, 2, 5 hours                       |
 | Photos & Videos | 1 GiB / 100 files                | Same encrypted original-file pipeline; no transcoding or recompression | Same choices                                           |
 | Text Pad        | 15,000 lines **and** 1 MiB UTF-8 | Separate Neon text records; not end-to-end encrypted                   | Same choices                                           |
-| Wide Connect    | 20 GiB / 1,000 files             | File payload only on endpoints; WebRTC may use a TURN relay            | 24 hours maximum, 2 hours without participant activity |
+| Wide Connect    | 20 GiB / 1,000 files             | Direct encrypted WebRTC; file payload only on endpoints            | 24 hours maximum, 2 hours without participant activity |
 
 UI uses the familiar GB label for binary byte limits. Files added to an existing stored transfer retain its link and original expiration. Expiration starts when the first file becomes active. Quota reservations are serialized by a database trigger, including concurrent requests. Individual and aggregate upload progress is available. Original logos, favicon, metadata imagery and PWA icons are retained.
 
@@ -19,7 +19,7 @@ npm ci --legacy-peer-deps
 npm run dev
 ```
 
-Reuse the configured Neon project and private `temporary-files` bucket. Do not commit `.env.local`, database URLs or storage/TURN secrets. For a fresh database apply `db/schema.sql`. For an existing deployment apply `db/migrate-four-modes.sql` and `db/migrate-wide-finalization.sql` before deploying the new code. The migration is additive and repeatable. See `RELEASE.md` for the verified database state.
+Reuse the configured Neon project and private `temporary-files` bucket. Do not commit `.env.local`, database URLs or storage secrets. For a fresh database apply `db/schema.sql`. For an existing deployment apply `db/migrate-four-modes.sql` and `db/migrate-wide-finalization.sql` before deploying the new code. The migration is additive and repeatable. See `RELEASE.md` for the verified database state.
 
 ## Storage and security
 
@@ -31,7 +31,7 @@ Text Pad uses a separate capability-bearing link `/text/<opaque-token>#<read-sec
 
 See `docs/wide-connect.md` for the protocol, consent model, integrity scheme, recovery and browser limits. HTTPS polling carries bounded SDP and progress metadata through Next route handlers and Neon. It requires no persistent signaling service and does not hold a serverless request open. No file-content upload route exists for Wide Connect.
 
-Cloudflare TURN is configured for production. For another environment, configure a TURN REST-compatible service for restrictive networks using `WIDE_TURN_URLS` and `WIDE_TURN_SECRET`. Approved participants receive HMAC-derived credentials valid for one hour; the shared secret stays server-side. The managed alternative uses server-only `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` to obtain one-hour credentials for approved active peers. ICE credential requests have a separate rate limit. Without a configured provider, STUN/direct routes may fail. The interface reports configured relay availability and the selected direct/relay route. TURN forwards encrypted WebRTC traffic and consumes relay bandwidth; it must be configured not to persist payloads.
+Wide Connect uses STUN-assisted direct WebRTC with a single public endpoint, `stun:stun.l.google.com:19302`, defined in `lib/wide-ice.ts` and documented by [WebRTC](https://webrtc.org/getting-started/peer-connections). There are no server credentials or runtime ICE configuration overrides. Some NATs, firewalls and VPNs prevent direct connections. The interface reports a clear failure and offers Retry connection; try another network on either device. File contents never fall back to backend uploads.
 
 Keep both devices awake and the browser open. Browser-private storage is required for receipt. Large-file export requires the File System Access save picker; the fallback download is capped at 128 MiB per file. Folder selection is feature-detected. After reload, the sender must reselect matching originals; the receiver must retain its local partial files. Backend metadata cannot reconstruct lost bytes.
 
