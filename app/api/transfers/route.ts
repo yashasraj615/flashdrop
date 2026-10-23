@@ -1,5 +1,4 @@
 import { RATE_LIMITS } from "@/lib/constants"
-import { after } from "next/server"
 import { runCleanup } from "@/lib/cleanup"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { logError, logEvent } from "@/lib/logger"
@@ -22,27 +21,15 @@ export async function POST(request: Request) {
       key: `upload:${clientIp(request)}`,
       ...RATE_LIMITS.upload,
     })
-    after(() =>
-      runCleanup().catch((error) =>
-        logError("cleanup.opportunistic_failed", error)
-      )
-    )
+    void runCleanup().catch((error) => logError("cleanup.opportunistic_failed", error))
 
-    const body = (await request.json()) as {
-      files?: IncomingFile[]
-      lifetimeSeconds?: unknown
-      mode?: unknown
-    }
+    const body = (await request.json()) as { files?: IncomingFile[]; lifetimeSeconds?: unknown }
     const incoming = (body.files ?? []).filter(
       (file): file is { filename: string; mimeType?: string; size: number } =>
         typeof file.filename === "string" && typeof file.size === "number"
     )
 
-    const created = await createTransfer(
-      incoming,
-      body.lifetimeSeconds,
-      body.mode === "media" ? "media" : "quick"
-    )
+    const created = await createTransfer(incoming, body.lifetimeSeconds)
     const uploads = []
     for (const file of created.files) {
       uploads.push(await createUploadPlan(file))
@@ -69,10 +56,7 @@ export async function POST(request: Request) {
       })
     }
     if (error instanceof UploadValidationError) {
-      return jsonError(
-        error.message,
-        error.message.includes("1 GB") ? 413 : 400
-      )
+      return jsonError(error.message, error.message.includes("1 GB") ? 413 : 400)
     }
     logError("transfer.create_failed", error)
     return handleRouteError(error)

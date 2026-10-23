@@ -11,6 +11,16 @@ const eslintConfig = defineConfig([
     files: ["components/react-bits/ballpit.tsx"],
     rules: {"@typescript-eslint/no-explicit-any": "off", "@typescript-eslint/ban-ts-comment": "off"},
   },
+  {
+    // Historical Quick Transfer code is restored byte-for-byte from 69e673a.
+    // Keep newer compiler-style diagnostics visible without rewriting its behavior.
+    files: ["components/countdown.tsx", "components/transfer-experience.tsx"],
+    rules: {
+      "react-hooks/refs": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

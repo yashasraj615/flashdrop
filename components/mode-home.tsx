@@ -1,4 +1,6 @@
 "use client"
+import { AppFrame } from "@/components/app-frame"
+import { QuickAppFrame } from "@/components/quick-app-frame"
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import {
@@ -11,6 +13,11 @@ import {
 } from "lucide-react"
 const TransferExperience = dynamic(() =>
   import("@/components/transfer-experience").then((m) => m.TransferExperience)
+)
+const MediaTransferExperience = dynamic(() =>
+  import("@/components/media-transfer-experience").then(
+    (m) => m.MediaTransferExperience
+  )
 )
 const TextPad = dynamic(() =>
   import("@/components/text-pad").then((m) => m.TextPad)
@@ -56,91 +63,101 @@ const modes = [
 export function ModeHome() {
   const [mode, setMode] = useState<string | null>(null),
     [backMessage, setBackMessage] = useState("")
+  if (mode === "quick")
+    return (
+      <QuickAppFrame>
+        <TransferExperience />
+      </QuickAppFrame>
+    )
   if (mode)
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
-        <MagneticButton
-          variant="ghost"
-          onClick={() => {
-            if (document.querySelector('[data-transfer-active="true"]')) {
-              setBackMessage(
-                "Pause or end the active transfer before switching modes."
-              )
-              return
-            }
-            history.replaceState(null, "", "/")
-            setBackMessage("")
-            setMode(null)
-          }}
-        >
-          <ArrowLeft className="size-4" /> All transfer modes
-        </MagneticButton>
-        {backMessage && (
-          <p role="status" className="mode-notice">
-            {backMessage}
-          </p>
-        )}
-        {mode === "text" ? (
-          <TextPad />
-        ) : mode === "wide" ? (
-          <WideConnect />
-        ) : (
-          <TransferExperience mode={mode === "media" ? "media" : "quick"} />
-        )}
-      </div>
+      <AppFrame>
+        <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
+          <MagneticButton
+            variant="ghost"
+            onClick={() => {
+              if (document.querySelector('[data-transfer-active="true"]')) {
+                setBackMessage(
+                  "Pause or end the active transfer before switching modes."
+                )
+                return
+              }
+              history.replaceState(null, "", "/")
+              setBackMessage("")
+              setMode(null)
+            }}
+          >
+            <ArrowLeft className="size-4" /> All transfer modes
+          </MagneticButton>
+          {backMessage && (
+            <p role="status" className="mode-notice">
+              {backMessage}
+            </p>
+          )}
+          {mode === "text" ? (
+            <TextPad />
+          ) : mode === "wide" ? (
+            <WideConnect />
+          ) : (
+            <MediaTransferExperience mode="media" />
+          )}
+        </div>
+      </AppFrame>
     )
   return (
-    <div className="py-8 sm:py-16">
-      <div className="mx-auto mb-10 max-w-2xl text-center">
-        <p className="eyebrow">Less friction. More connection.</p>
-        <h1 className="mt-5 text-5xl font-semibold tracking-tight text-balance sm:text-7xl">
-          Good things.
+    <AppFrame>
+      <div className="py-8 sm:py-16">
+        <div className="mx-auto mb-10 max-w-2xl text-center">
+          <p className="eyebrow">Less friction. More connection.</p>
+          <h1 className="mt-5 text-5xl font-semibold tracking-tight text-balance sm:text-7xl">
+            Good things.
+            <br />
+            <span className="text-primary">Worth sharing.</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-lg text-base leading-7 text-white/65">
+            A file, a moment, an idea. Four ways to send it wherever it needs to
+            go.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {modes.map(
+            ({ id, name, description, detail, icon: Icon, accent }, i) => (
+              <button
+                key={id}
+                data-magnetic
+                data-accent={accent}
+                onClick={() => setMode(id)}
+                className="mode-card group text-left"
+              >
+                <div className="flex items-start justify-between">
+                  <span className="mode-icon">
+                    <Icon className="size-6" />
+                  </span>
+                  <span className="text-xs text-white/35 tabular-nums">
+                    0{i + 1}{" "}
+                    <ArrowUpRight className="ml-3 inline size-4 text-white/60 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </span>
+                </div>
+                <h2 className="mt-6 text-2xl font-medium tracking-tight">
+                  {name}
+                </h2>
+                <p className="mt-2 max-w-sm text-sm leading-6 text-white/65">
+                  {description}
+                </p>
+                <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-5 text-primary/85">
+                  {detail}
+                </p>
+              </button>
+            )
+          )}
+        </div>
+        <p className="mt-7 text-center text-xs leading-6 text-white/50">
+          Temporary links for everyday sharing. A live connection for the big
+          stuff.
           <br />
-          <span className="text-primary">Worth sharing.</span>
-        </h1>
-        <p className="mx-auto mt-6 max-w-lg text-base leading-7 text-white/65">
-          A file, a moment, an idea. Four ways to send it wherever it needs to
-          go.
+          You choose how your content travels.
         </p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {modes.map(
-          ({ id, name, description, detail, icon: Icon, accent }, i) => (
-            <button
-              key={id}
-              data-magnetic
-              data-accent={accent}
-              onClick={() => setMode(id)}
-              className="mode-card group text-left"
-            >
-              <div className="flex items-start justify-between">
-                <span className="mode-icon">
-                  <Icon className="size-6" />
-                </span>
-                <span className="text-xs text-white/35 tabular-nums">
-                  0{i + 1}{" "}
-                  <ArrowUpRight className="ml-3 inline size-4 text-white/60 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </span>
-              </div>
-              <h2 className="mt-6 text-2xl font-medium tracking-tight">
-                {name}
-              </h2>
-              <p className="mt-2 max-w-sm text-sm leading-6 text-white/65">
-                {description}
-              </p>
-              <p className="mt-6 border-t border-white/10 pt-4 text-xs leading-5 text-primary/85">
-                {detail}
-              </p>
-            </button>
-          )
-        )}
-      </div>
-      <p className="mt-7 text-center text-xs leading-6 text-white/50">
-        Temporary links for everyday sharing. A live connection for the big
-        stuff.
-        <br />
-        You choose how your content travels.
-      </p>
-    </div>
+    </AppFrame>
   )
 }

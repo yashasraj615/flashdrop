@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm"
 import rehypeSanitize from "rehype-sanitize"
 import { MagneticButton } from "@/components/magnetic-button"
 import { ShareTools } from "@/components/share-tools"
-import { Countdown } from "@/components/countdown"
+import { Countdown } from "@/components/mode-countdown"
 import { DEFAULT_LIFETIME_SECONDS, LIFETIME_OPTIONS } from "@/lib/lifetime"
 import {
   lineCount,

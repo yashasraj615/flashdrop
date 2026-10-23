@@ -23,6 +23,7 @@ function loadEnv() {
 const env = loadEnv()
 const base = process.env.SMOKE_BASE || "http://127.0.0.1:3000"
 const media = process.env.SMOKE_MODE === "media"
+const api = media ? "/api/media" : "/api/transfers"
 const FILE_INFO = new TextEncoder().encode("flashdrop-file-v1")
 
 function bytesToBase64url(bytes) {
@@ -178,7 +179,7 @@ async function uploadPlans(token, manageToken, secret, files, plans) {
   }
 }
 
-const tooBig = await fetch(`${base}/api/transfers`, {
+const tooBig = await fetch(`${base}${api}`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({
@@ -194,16 +195,18 @@ const tooBig = await fetch(`${base}/api/transfers`, {
 if (tooBig.status !== 413) throw new Error(`expected 413, got ${tooBig.status}`)
 
 const fileA = {
-  filename: "a.bin",
+  filename: "Company report 2026.txt",
   mimeType: "application/octet-stream",
   size: 32 * 1024,
   bytes: Buffer.alloc(32 * 1024, 7),
 }
+const binarySize =
+  process.env.SMOKE_MULTIPART === "1" ? 9 * 1024 * 1024 : 48 * 1024
 const fileB = {
   filename: "b.bin",
   mimeType: "application/octet-stream",
-  size: 48 * 1024,
-  bytes: Buffer.alloc(48 * 1024, 9),
+  size: binarySize,
+  bytes: Buffer.alloc(binarySize, 9),
 }
 if (media) {
   for (const [file, path, name] of [
@@ -221,7 +224,7 @@ if (media) {
 }
 
 const secret = createSecret()
-const initResponse = await fetch(`${base}/api/transfers`, {
+const initResponse = await fetch(`${base}${api}`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({
@@ -239,7 +242,7 @@ if (!initResponse.ok || !init.token || !init.manageToken)
 const token = init.token
 await uploadPlans(token, init.manageToken, secret, [fileA, fileB], init.files)
 
-const meta = await json(await fetch(`${base}/api/transfers/${token}`))
+const meta = await json(await fetch(`${base}${api}/${token}`))
 if (meta.fileCount !== 2) throw new Error("expected 2 files")
 const sameToken = meta.token
 
@@ -255,7 +258,7 @@ if (media) {
   fileC.mimeType = "image/png"
   fileC.size = fileC.bytes.length
 }
-const addResponse = await fetch(`${base}/api/transfers/${token}/files`, {
+const addResponse = await fetch(`${base}${api}/${token}/files`, {
   method: "POST",
   headers: {
     "content-type": "application/json",
@@ -274,17 +277,16 @@ if (added.token !== sameToken)
   throw new Error("token changed after adding files")
 await uploadPlans(token, init.manageToken, secret, [fileC], added.files)
 
-const afterAdd = await json(await fetch(`${base}/api/transfers/${token}`))
+const afterAdd = await json(await fetch(`${base}${api}/${token}`))
 if (afterAdd.fileCount !== 3) throw new Error("expected 3 files")
 if (afterAdd.token !== token) throw new Error("token drifted")
 if (afterAdd.expiresAt !== meta.expiresAt)
   throw new Error("adding files changed expiration")
-if (afterAdd.mode !== (media ? "media" : "quick"))
-  throw new Error("transfer mode changed")
+if (media && afterAdd.mode !== "media") throw new Error("transfer mode changed")
 if (afterAdd.lifetimeSeconds !== 300)
   throw new Error("selected lifetime not honored")
 
-const oversize = await fetch(`${base}/api/transfers/${token}/files`, {
+const oversize = await fetch(`${base}${api}/${token}/files`, {
   method: "POST",
   headers: {
     "content-type": "application/json",
@@ -304,7 +306,7 @@ const oversize = await fetch(`${base}/api/transfers/${token}/files`, {
 if (oversize.status !== 413)
   throw new Error(`expected add 413, got ${oversize.status}`)
 
-const forbidden = await fetch(`${base}/api/transfers/${token}/files`, {
+const forbidden = await fetch(`${base}${api}/${token}/files`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ files: [{ filename: "x.bin", size: 10 }] }),
@@ -314,11 +316,52 @@ if (forbidden.status !== 403)
 
 const master = parseSecret(secret)
 let downloaded = 0
+const delivery = []
 for (const file of afterAdd.files) {
-  const downloadMeta = await json(
-    await fetch(`${base}/api/transfers/${token}/files/${file.id}/download`)
+  const metadataResponse = await fetch(
+    `${base}/api/transfers/${token}/files/${file.id}/download`
   )
+  if (
+    metadataResponse.status !== 200 ||
+    metadataResponse.redirected ||
+    metadataResponse.headers.has("location")
+  )
+    throw new Error(
+      "download metadata did not preserve the direct JSON response"
+    )
+  const downloadMeta = await json(metadataResponse)
+  if (
+    downloadMeta.filename !== file.filename ||
+    downloadMeta.mimeType !== file.mimeType
+  )
+    throw new Error("download metadata changed filename or MIME type")
   const cipherResponse = await fetch(downloadMeta.url)
+  if (!cipherResponse.ok)
+    throw new Error(`download failed ${cipherResponse.status}`)
+  const disposition = decodeURIComponent(
+    cipherResponse.headers.get("content-disposition") || ""
+  )
+  if (
+    !disposition.includes("attachment") ||
+    !disposition.includes(file.filename)
+  )
+    throw new Error("signed delivery did not preserve attachment filename")
+  if (
+    !cipherResponse.headers
+      .get("content-type")
+      ?.includes("application/octet-stream")
+  )
+    throw new Error("ciphertext content type changed")
+  if (!cipherResponse.headers.get("cache-control")?.includes("no-store"))
+    throw new Error("ciphertext cache policy changed")
+  delivery.push({
+    hostname: new URL(cipherResponse.url).hostname,
+    redirected: cipherResponse.redirected,
+    metadataContentType: metadataResponse.headers.get("content-type"),
+    ciphertextContentType: cipherResponse.headers.get("content-type"),
+    attachmentFilenamePreserved: true,
+    cacheControl: cipherResponse.headers.get("cache-control"),
+  })
   const packed = Buffer.from(await cipherResponse.arrayBuffer())
   if (
     packed.equals(
@@ -356,6 +399,8 @@ process.stdout.write(
     ok: true,
     mode: media ? "media" : "quick",
     expirationPreserved: true,
+    integrityVerified: true,
+    delivery,
     tokenLength: token.length,
     sameToken: true,
     files: 3,

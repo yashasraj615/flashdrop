@@ -42,45 +42,26 @@ function putWithProgress(
       if (event.lengthComputable) onProgress(event.loaded)
     }
     xhr.onload = () => {
-      signal.removeEventListener("abort", onAbort)
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(xhr.getResponseHeader("ETag"))
         return
       }
       reject(new Error("Upload couldn't be completed."))
     }
-    xhr.onerror = () => {
-      signal.removeEventListener("abort", onAbort)
-      reject(new Error("Upload couldn't be completed."))
-    }
-    xhr.onabort = () => {
-      signal.removeEventListener("abort", onAbort)
-      reject(new DOMException("Aborted", "AbortError"))
-    }
+    xhr.onerror = () => reject(new Error("Upload couldn't be completed."))
+    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"))
     const onAbort = () => xhr.abort()
     signal.addEventListener("abort", onAbort, { once: true })
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"))
-      return
-    }
-    xhr.send(
-      body instanceof Uint8Array ? new Blob([new Uint8Array(body)]) : body
-    )
+    xhr.send(body instanceof Uint8Array ? new Blob([new Uint8Array(body)]) : body)
   })
 }
 
-export async function requestTransfer(
-  files: File[],
-  signal: AbortSignal,
-  lifetimeSeconds?: number,
-  mode: "quick" | "media" = "quick"
-) {
+export async function requestTransfer(files: File[], signal: AbortSignal, lifetimeSeconds?: number) {
   const response = await fetch("/api/transfers", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       lifetimeSeconds,
-      mode,
       files: files.map((file) => ({
         filename: file.name,
         mimeType: file.type || "application/octet-stream",
@@ -91,9 +72,7 @@ export async function requestTransfer(
   })
   const data = (await response.json()) as TransferInitResponse
   if (!response.ok || !data.token) {
-    const error = new Error(
-      data.error || "We couldn't prepare your files."
-    ) as Error & {
+    const error = new Error(data.error || "We couldn't prepare your files.") as Error & {
       remaining?: number
     }
     error.remaining = data.remaining
@@ -124,13 +103,9 @@ export async function requestAddFiles(
     }),
     signal,
   })
-  const data = (await response.json()) as TransferInitResponse & {
-    expiresAt?: string
-  }
+  const data = (await response.json()) as TransferInitResponse & { expiresAt?: string }
   if (!response.ok) {
-    const error = new Error(
-      data.error || "Those files couldn't be added."
-    ) as Error & {
+    const error = new Error(data.error || "Those files couldn't be added.") as Error & {
       remaining?: number
     }
     error.remaining = data.remaining
@@ -147,7 +122,6 @@ export async function uploadEncryptedFiles(params: {
   plans: UploadFilePlan[]
   signal: AbortSignal
   onProgress: (loaded: number, total: number) => void
-  onFileProgress?: (index: number, loaded: number, total: number) => void
 }) {
   const total = params.plans.reduce((sum, plan) => sum + plan.encryptedSize, 0)
   let completed = 0
@@ -157,21 +131,12 @@ export async function uploadEncryptedFiles(params: {
     const source = params.files[fileIndex]
     if (!plan || !source) throw new Error("Couldn't secure this file.")
     const key = await deriveFileKey(params.masterKey, plan.id)
-    const chunks = chunkCount(
-      source.size,
-      plan.chunkSize || ENCRYPTION_CHUNK_BYTES
-    )
+    const chunks = chunkCount(source.size, plan.chunkSize || ENCRYPTION_CHUNK_BYTES)
     const parts: { partNumber: number; etag: string }[] = []
     const partLoaded: Record<number, number> = {}
 
     async function uploadPart(index: number) {
-      const packed = await encryptFileChunk(
-        source,
-        key,
-        plan.id,
-        index,
-        plan.chunkSize
-      )
+      const packed = await encryptFileChunk(source, key, plan.id, index, plan.chunkSize)
       let url = plan.uploadUrl
       if (plan.mode === "multipart") {
         const urlResponse = await fetch(
@@ -182,17 +147,11 @@ export async function uploadEncryptedFiles(params: {
               "content-type": "application/json",
               "x-flashdrop-manage": params.manageToken,
             },
-            body: JSON.stringify({
-              partNumber: index + 1,
-              manageToken: params.manageToken,
-            }),
+            body: JSON.stringify({ partNumber: index + 1, manageToken: params.manageToken }),
             signal: params.signal,
           }
         )
-        const urlData = (await urlResponse.json()) as {
-          url?: string
-          error?: string
-        }
+        const urlData = (await urlResponse.json()) as { url?: string; error?: string }
         if (!urlResponse.ok || !urlData.url) {
           throw new Error(urlData.error || "Upload couldn't be completed.")
         }
@@ -205,12 +164,8 @@ export async function uploadEncryptedFiles(params: {
         plan.mode === "put" ? "application/octet-stream" : undefined,
         (loaded) => {
           partLoaded[index] = loaded
-          const current = Object.values(partLoaded).reduce(
-            (sum, value) => sum + value,
-            0
-          )
+          const current = Object.values(partLoaded).reduce((sum, value) => sum + value, 0)
           params.onProgress(completed + current, total)
-          params.onFileProgress?.(fileIndex, current, plan.encryptedSize)
         },
         params.signal
       )
@@ -223,17 +178,14 @@ export async function uploadEncryptedFiles(params: {
       await uploadPart(0)
     } else {
       let next = 0
-      const workers = Array.from(
-        { length: Math.min(UPLOAD_CONCURRENCY, chunks) },
-        async () => {
-          while (!params.signal.aborted) {
-            const index = next
-            next += 1
-            if (index >= chunks) return
-            await uploadPart(index)
-          }
+      const workers = Array.from({ length: Math.min(UPLOAD_CONCURRENCY, chunks) }, async () => {
+        while (!params.signal.aborted) {
+          const index = next
+          next += 1
+          if (index >= chunks) return
+          await uploadPart(index)
         }
-      )
+      })
       await Promise.all(workers)
     }
 
@@ -253,17 +205,12 @@ export async function uploadEncryptedFiles(params: {
     if (!completeResponse.ok) {
       throw new Error(completeData.error || "Upload couldn't be completed.")
     }
-    completed += plan.encryptedSize || encryptedSize(source.size)
+        completed += plan.encryptedSize || encryptedSize(source.size)
     params.onProgress(completed, total)
-    params.onFileProgress?.(fileIndex, plan.encryptedSize, plan.encryptedSize)
   }
 }
 
-export async function abortFile(
-  token: string,
-  manageToken: string,
-  fileId: string
-) {
+export async function abortFile(token: string, manageToken: string, fileId: string) {
   await fetch(`/api/transfers/${token}/files/${fileId}/abort`, {
     method: "POST",
     headers: {

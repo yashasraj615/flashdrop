@@ -366,3 +366,15 @@ html.has-ghost-cursor [contenteditable] {
     -webkit-backdrop-filter: blur(12px);
   }
 }
+
+/* Recovered from 69e673a; scoped so newer mode styling is preserved. */
+@layer components {
+  .quick-transfer-original .glass-panel {
+    backdrop-filter: blur(32px) saturate(1.35);
+    -webkit-backdrop-filter: blur(32px) saturate(1.35);
+  }
+  .quick-transfer-original .magnet-control { min-height: auto; }
+  .quick-transfer-original .magnet-control[data-magnet-active="true"] {
+    transform: scale(1.035);
+  }
+}

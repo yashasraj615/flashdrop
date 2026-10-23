@@ -1,4 +1,4 @@
-import { runCleanup } from "@/lib/cleanup"
+import { runCleanup } from "@/lib/mode-cleanup"
 import { jsonError } from "@/lib/http"
 import { logError, logEvent } from "@/lib/logger"
 
