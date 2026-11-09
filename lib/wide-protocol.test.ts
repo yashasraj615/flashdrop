@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { createContext, runInContext } from "node:vm"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { WideTransport, type WideProgress } from "./wide-transport"
-import { fileMetadata, EMPTY_CHAIN } from "./wide-integrity"
+import { fileMetadata, EMPTY_CHAIN, sha256 } from "./wide-integrity"
 import { WIDE_CHUNK_BYTES } from "./mode-limits"
 // Deterministic browser adapters exercise the actual transport + actual storage worker.
 const disk = new Map<string, Uint8Array>(),
@@ -331,23 +331,49 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     resumed.sender.close()
     resumed.receiver.close()
   })
-  it("amortizes disk flushes while every receipt remains durable", async () => {
-    const chunks = 128
+  it("flushes each explicit worker batch once before returning durable receipts", async () => {
+    const count = 128
     const p = await pair(
       new File(
-        [new Uint8Array(WIDE_CHUNK_BYTES * chunks).fill(4)],
+        [new Uint8Array(WIDE_CHUNK_BYTES * count).fill(4)],
         "batch.bin",
         { lastModified: 1 }
       ),
       "batched"
     )
-    p.link()
-    await vi.waitFor(() => expect(p.done).toBe(true), { timeout: 10000 })
-    expect(ackAfterFlush).toBe(true)
-    expect(flushCalls).toBeLessThan(chunks)
-    expect(p.progress[0].verified).toBe(true)
-    p.sender.close()
-    p.receiver.close()
+    try {
+      let last
+      for (let start = 0; start < count; start += 32) {
+        const chunks = []
+        for (let i = start; i < start + 32; i++) {
+          const bytes = new Uint8Array(WIDE_CHUNK_BYTES).fill(4).buffer
+          chunks.push({
+            index: 0,
+            offset: i * WIDE_CHUNK_BYTES,
+            bytes,
+            hash: await sha256(bytes),
+          })
+        }
+        const values = (await p.receiver.store!.call("chunks", {
+          chunks,
+        })) as unknown as { offset: number; chain: string }[]
+        last = values[values.length - 1]
+        expect(last.offset).toBe((start + 32) * WIDE_CHUNK_BYTES)
+        expect([...disk.keys()].every((key) => flushed.has(key))).toBe(true)
+      }
+      expect(flushCalls).toBe(8)
+      const completed = await p.receiver.store!.call("finish", {
+        index: 0,
+        chain: last!.chain,
+      })
+      expect(completed.verified).toBe(true)
+      expect(disk.get("/flashdrop-batched/data-0")).toEqual(
+        new Uint8Array(WIDE_CHUNK_BYTES * count).fill(4)
+      )
+    } finally {
+      p.sender.close()
+      p.receiver.close()
+    }
   })
   it("completes zero-byte files with a valid empty chain", async () => {
     const p = await pair(new File([], "empty.txt", { lastModified: 1 }))
