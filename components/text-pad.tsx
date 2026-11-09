@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useState, useDeferredValue } from "react"
+import { ClipboardEditor } from "@/components/clipboard-editor"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeSanitize from "rehype-sanitize"
@@ -143,7 +144,7 @@ export function TextPad({ token }: { token?: string }) {
       <div>
         <p className="eyebrow">Text Pad</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          A little space for your ideas.
+          Your clipboard, with room to think.
         </h1>
         <p className="mt-3 text-sm text-white/65">
           Markdown, notes, code and plain text. Up to 15,000 lines and 1 MiB of
@@ -207,20 +208,14 @@ export function TextPad({ token }: { token?: string }) {
               )}
             </div>
           ) : (
-            <textarea
-              aria-label={
-                token ? "Original shared text" : "Write or paste text"
-              }
-              className="mode-editor w-full resize-y p-4 font-mono text-sm leading-6"
-              spellCheck={false}
-              readOnly={Boolean(token)}
+            <ClipboardEditor
               value={text}
-              onChange={(e) => {
-                setText(e.target.value)
+              readOnly={Boolean(token)}
+              onChange={(value) => {
+                setText(value)
                 setUrl("")
                 setExpiry("")
               }}
-              placeholder="# Your next idea starts here…"
             />
           )}
           <p

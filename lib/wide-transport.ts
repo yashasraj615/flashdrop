@@ -6,7 +6,11 @@ import {
   nextChain,
   sha256,
 } from "@/lib/wide-integrity"
-export type Checkpoint = { offset: number; chain: string; verified?: boolean }
+export type Checkpoint = {
+  offset: number
+  chain: string
+  verified?: boolean
+}
 export type WideProgress = Record<string, Checkpoint>
 type Control = {
   id?: number
@@ -50,7 +54,11 @@ class LocalStore {
     const id = ++this.sequence
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
-      this.worker.postMessage({ id, action, ...fields })
+      const transfers =
+        action === "chunks"
+          ? (fields.chunks as { bytes: ArrayBuffer }[]).map((c) => c.bytes)
+          : []
+      this.worker.postMessage({ id, action, ...fields }, transfers)
     })
   }
   close() {
@@ -70,6 +78,9 @@ export class WideTransport {
   closed = false
   completed = false
   sequence = 0
+  incoming: (string | ArrayBuffer)[] = []
+  drainTimer?: ReturnType<typeof setTimeout>
+  disconnectTimer?: ReturnType<typeof setTimeout>
   queuedFrames = 0
   watchdog: ReturnType<typeof setTimeout>
   finishTimer?: ReturnType<typeof setTimeout>
@@ -98,6 +109,7 @@ export class WideTransport {
       60000
     )
     this.pc.onconnectionstatechange = () => {
+      clearTimeout(this.disconnectTimer)
       if (this.pc.connectionState === "connected") {
         clearTimeout(this.watchdog)
         void this.connectionRoute()
@@ -107,8 +119,12 @@ export class WideTransport {
         !this.completed &&
         !this.closed
       )
-        this.fail(
-          "Connection interrupted. Keep both devices available, then choose Retry connection to resume verified local data."
+        this.disconnectTimer = setTimeout(
+          () =>
+            this.fail(
+              "Connection interrupted. Keep both devices available, then choose Retry connection to resume verified local data."
+            ),
+          this.pc.connectionState === "failed" ? 0 : 10000
         )
     }
     this.pc.ondatachannel = (e) => this.bind(e.channel)
@@ -184,19 +200,78 @@ export class WideTransport {
           return
         }
       }
-      if (++this.queuedFrames > 64) {
+      if (++this.queuedFrames > 128) {
         this.fail(
-          "The peer exceeded the transfer flow limit. Reset pairing to restart safely."
+          "The peer exceeded the bounded receive window. Retry the connection."
         )
         return
       }
-      this.queue = this.queue
-        .then(() => this.receive(e.data))
-        .catch((e) => this.fail((e as Error).message))
-        .finally(() => {
-          this.queuedFrames--
-        })
+      this.incoming.push(e.data)
+      this.scheduleDrain()
     }
+  }
+  scheduleDrain() {
+    if (this.closed) return
+    if (!this.drainTimer)
+      this.drainTimer = setTimeout(() => {
+        this.queue = this.queue
+          .then(async () => {
+            // Drain immediately, then coalesce arrivals while the disk worker is busy.
+            while (this.incoming.length && !this.closed) {
+              const items = this.incoming.splice(0, 64)
+              for (let start = 0; start < items.length;) {
+                if (typeof items[start] === "string") {
+                  await this.receive(items[start++])
+                  continue
+                }
+                const frames: ArrayBuffer[] = []
+                while (start < items.length && typeof items[start] !== "string")
+                  frames.push(items[start++] as ArrayBuffer)
+                await this.receiveBatch(frames)
+              }
+              this.queuedFrames -= items.length
+            }
+          })
+          .catch((e) => this.fail((e as Error).message))
+          .finally(() => {
+            this.drainTimer = undefined
+            if (this.incoming.length && !this.closed) this.scheduleDrain()
+          })
+      }, 0)
+  }
+  async receiveBatch(frames: ArrayBuffer[]) {
+    if (this.closed) return
+    if (this.owner || this.paused)
+      throw Error("Receiving is unavailable. Resume and retry.")
+    const chunks = frames.map((data) => {
+      if (data.byteLength > 16384 || data.byteLength < 4)
+        throw Error("Invalid transfer frame.")
+      const length = new DataView(data).getUint32(0)
+      if (length > 508 || 4 + length >= data.byteLength)
+        throw Error("Invalid chunk header.")
+      const m = JSON.parse(
+        new TextDecoder().decode(data.slice(4, 4 + length))
+      ) as Control
+      if (
+        !Number.isSafeInteger(m.id) ||
+        !m.id ||
+        m.id < 0 ||
+        m.action !== "chunk" ||
+        !Number.isInteger(m.index) ||
+        !this.manifest[m.index!]
+      )
+        throw Error("Invalid transfer message.")
+      return { ...m, bytes: data.slice(4 + length) }
+    })
+    const values = (await this.store!.call("chunks", {
+      chunks,
+    })) as unknown as Checkpoint[]
+    if (this.closed) return
+    chunks.forEach((m, i) => {
+      this.progress[m.index!] = values[i]
+      this.channel?.send(JSON.stringify({ reply: m.id, value: values[i] }))
+    })
+    this.hooks.progress({ ...this.progress }, this.sent)
   }
   async receive(data: string | ArrayBuffer) {
     if (this.closed) return
@@ -260,7 +335,12 @@ export class WideTransport {
         )
       this.progress[index] = value
       this.hooks.progress({ ...this.progress }, this.sent)
-      this.channel?.send(JSON.stringify({ reply: m.id, value }))
+      this.channel?.send(
+        JSON.stringify({
+          reply: m.id,
+          value,
+        })
+      )
     } catch (e) {
       this.channel?.send(
         JSON.stringify({ reply: m.id, error: (e as Error).message })
@@ -303,6 +383,34 @@ export class WideTransport {
       }
     })
   }
+  async waitForDrain() {
+    const channel = this.channel!
+    if (channel.bufferedAmount <= 512 * 1024) return
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer)
+        channel.removeEventListener("bufferedamountlow", ready)
+        channel.removeEventListener("close", closed)
+      }
+      const ready = () => {
+        cleanup()
+        resolve()
+      }
+      const closed = () => {
+        cleanup()
+        reject(new Error("Connection closed. Retry to resume."))
+      }
+      const timer = setTimeout(() => {
+        cleanup()
+        reject(new Error("Connection buffer stalled. Retry the connection."))
+      }, 60000)
+      channel.addEventListener("bufferedamountlow", ready, { once: true })
+      channel.addEventListener("close", closed, { once: true })
+      if (this.closed || channel.readyState !== "open") closed()
+      else if (channel.bufferedAmount <= channel.bufferedAmountLowThreshold)
+        ready()
+    })
+  }
   async sendFiles() {
     for (let i = 0; i < this.manifest.length; i++) {
       const source = this.sources[i],
@@ -329,55 +437,60 @@ export class WideTransport {
         )
       this.progress[i] = state
       this.hooks.progress({ ...this.progress }, this.sent)
-      // At most 32 small frames in flight (~384 KiB); receiver serializes disk flushes.
-      // Pipelining avoids one whole network round trip per 12 KiB on distant networks.
+      // Keep up to 32 receipts in flight; never stop the whole pipeline for a batch.
       let offset = state.offset
+      const receiveWindow = 32
+      const inFlight = new Set<Promise<void>>()
+      let failure: Error | undefined
+      let block = new ArrayBuffer(0),
+        blockStart = offset
       while (offset < source.size) {
         while (this.paused && !this.closed)
-          await new Promise((r) => setTimeout(r, 150))
+          await new Promise((r) => setTimeout(r, 100))
         if (this.closed) return
-        const batch: {
-          offset: number
-          chain: string
-          size: number
-          receipt: Promise<{ value?: Checkpoint; error?: Error }>
-        }[] = []
-        for (let n = 0; n < 32 && offset < source.size; n++) {
-          if (this.closed) return
-          while (this.channel!.bufferedAmount > 512 * 1024 && !this.closed)
-            await new Promise((r) => setTimeout(r, 25))
-          const bytes = await source
-              .slice(offset, offset + WIDE_CHUNK_BYTES)
-              .arrayBuffer(),
-            hash = await sha256(bytes)
-          chain = await nextChain(chain, hash)
-          const receipt = this.rpc(
-            { action: "chunk", index: i, offset, hash },
-            bytes
-          ).then(
-            (value) => ({ value }),
-            (error) => ({ error: error as Error })
-          )
-          this.sent += bytes.byteLength
-          batch.push({
-            offset: offset + bytes.byteLength,
-            chain,
-            size: bytes.byteLength,
-            receipt,
+        if (failure) throw failure
+        if (inFlight.size >= receiveWindow) {
+          await Promise.race(inFlight)
+          continue
+        }
+        await this.waitForDrain()
+        if (this.closed) return
+        if (offset >= blockStart + block.byteLength) {
+          blockStart = offset
+          block = await source
+            .slice(offset, offset + WIDE_CHUNK_BYTES * 64)
+            .arrayBuffer()
+        }
+        const bytes = block.slice(
+          offset - blockStart,
+          offset - blockStart + WIDE_CHUNK_BYTES
+        )
+        const hash = await sha256(bytes)
+        chain = await nextChain(chain, hash)
+        const expectedOffset = offset + bytes.byteLength,
+          expectedChain = chain
+        const receipt: Promise<void> = this.rpc(
+          { action: "chunk", index: i, offset, hash },
+          bytes
+        )
+          .then((ack) => {
+            if (ack.offset !== expectedOffset || ack.chain !== expectedChain)
+              throw Error(
+                "The receiver acknowledgement failed integrity verification. Retry the transfer."
+              )
+            this.progress[i] = ack
+            this.hooks.progress({ ...this.progress }, this.sent)
           })
-          offset += bytes.byteLength
-        }
-        for (const item of batch) {
-          const { value: ack, error } = await item.receipt
-          if (error) throw error
-          if (!ack || ack.offset !== item.offset || ack.chain !== item.chain)
-            throw Error(
-              "The receiver acknowledgement failed integrity verification. Retry the transfer."
-            )
-          this.progress[i] = ack
-          this.hooks.progress({ ...this.progress }, this.sent)
-        }
+          .catch((e) => {
+            failure = e instanceof Error ? e : new Error(String(e))
+          })
+          .finally(() => inFlight.delete(receipt))
+        inFlight.add(receipt)
+        this.sent += bytes.byteLength
+        offset = expectedOffset
       }
+      await Promise.all(inFlight)
+      if (failure) throw failure
       this.hooks.status(
         "Waiting for complete-file verification on the receiving device…"
       )
@@ -442,6 +555,9 @@ export class WideTransport {
     this.closed = true
     clearTimeout(this.watchdog)
     clearTimeout(this.finishTimer)
+    clearTimeout(this.drainTimer)
+    clearTimeout(this.disconnectTimer)
+    this.incoming = []
     for (const p of this.pending.values()) {
       clearTimeout(p.timer)
       p.reject(new Error("Connection closed. Retry to resume."))

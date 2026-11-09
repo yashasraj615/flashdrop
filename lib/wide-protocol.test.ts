@@ -7,6 +7,7 @@ import { WIDE_CHUNK_BYTES } from "./mode-limits"
 // Deterministic browser adapters exercise the actual transport + actual storage worker.
 const disk = new Map<string, Uint8Array>(),
   locks = new Set<string>()
+let flushCalls = 0
 let corrupt = false,
   frames: number[] = [],
   ackAfterFlush = true
@@ -44,7 +45,10 @@ function directory(prefix = "") {
               flushed.delete(path)
               return b.length
             },
-            flush: () => flushed.add(path),
+            flush: () => {
+              flushCalls++
+              flushed.add(path)
+            },
             close: () => locks.delete(path),
           }
         },
@@ -199,6 +203,7 @@ async function pair(source: File, token = "test") {
   }
 }
 beforeEach(() => {
+  flushCalls = 0
   disk.clear()
   locks.clear()
   flushed.clear()
@@ -248,7 +253,7 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
   })
   it("reconciles flushed checkpoints across endpoint recreation and resumes without duplicating bytes", async () => {
     const source = new File(
-        [new Uint8Array(WIDE_CHUNK_BYTES * 64 + 10).fill(7)],
+        [new Uint8Array(WIDE_CHUNK_BYTES * 256 + 10).fill(7)],
         "large.bin",
         { lastModified: 1 }
       ),
@@ -260,21 +265,24 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     }
     first.link()
     await vi.waitFor(() =>
-      expect(first.sender.progress[0]?.offset).toBe(WIDE_CHUNK_BYTES * 32)
+      expect(first.sender.progress[0]?.offset).toBeGreaterThanOrEqual(
+        WIDE_CHUNK_BYTES * 32
+      )
     )
+    const checkpoint = first.receiver.progress[0].offset
     first.sender.close()
     first.receiver.close()
     const resumed = await pair(source, "resume")
     resumed.link()
     await vi.waitFor(() => expect(resumed.done).toBe(true))
-    expect(resumed.sender.sent).toBe(source.size - WIDE_CHUNK_BYTES * 32)
+    expect(resumed.sender.sent).toBe(source.size - checkpoint)
     expect(disk.get("/flashdrop-resume/data-0")?.length).toBe(source.size)
     resumed.sender.close()
     resumed.receiver.close()
   })
   it("detects tampered retained local data before resuming", async () => {
     const source = new File(
-        [new Uint8Array(WIDE_CHUNK_BYTES * 64).fill(8)],
+        [new Uint8Array(WIDE_CHUNK_BYTES * 256).fill(8)],
         "a.bin",
         { lastModified: 1 }
       ),
@@ -284,7 +292,9 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     }
     first.link()
     await vi.waitFor(() =>
-      expect(first.sender.progress[0]?.offset).toBe(WIDE_CHUNK_BYTES * 32)
+      expect(first.sender.progress[0]?.offset).toBeGreaterThanOrEqual(
+        WIDE_CHUNK_BYTES * 32
+      )
     )
     first.sender.close()
     first.receiver.close()
@@ -294,7 +304,7 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     )
   })
   it("rejects a changed source prefix even when first/last fingerprints still match", async () => {
-    const bytes = new Uint8Array(WIDE_CHUNK_BYTES * 64).fill(3)
+    const bytes = new Uint8Array(WIDE_CHUNK_BYTES * 256).fill(3)
     const original = new File([bytes], "same.bin", { lastModified: 1 }),
       first = await pair(original, "changed-source")
     first.sender.hooks.progress = (p) => {
@@ -302,7 +312,9 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     }
     first.link()
     await vi.waitFor(() =>
-      expect(first.sender.progress[0]?.offset).toBe(WIDE_CHUNK_BYTES * 32)
+      expect(first.sender.progress[0]?.offset).toBeGreaterThanOrEqual(
+        WIDE_CHUNK_BYTES * 32
+      )
     )
     first.sender.close()
     first.receiver.close()
@@ -318,6 +330,24 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
     expect(resumed.sender.sent).toBe(0)
     resumed.sender.close()
     resumed.receiver.close()
+  })
+  it("amortizes disk flushes while every receipt remains durable", async () => {
+    const chunks = 128
+    const p = await pair(
+      new File(
+        [new Uint8Array(WIDE_CHUNK_BYTES * chunks).fill(4)],
+        "batch.bin",
+        { lastModified: 1 }
+      ),
+      "batched"
+    )
+    p.link()
+    await vi.waitFor(() => expect(p.done).toBe(true), { timeout: 10000 })
+    expect(ackAfterFlush).toBe(true)
+    expect(flushCalls).toBeLessThan(chunks)
+    expect(p.progress[0].verified).toBe(true)
+    p.sender.close()
+    p.receiver.close()
   })
   it("completes zero-byte files with a valid empty chain", async () => {
     const p = await pair(new File([], "empty.txt", { lastModified: 1 }))

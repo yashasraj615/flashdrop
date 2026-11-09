@@ -83,6 +83,22 @@ async function run(m) {
     await verify(h)
     return h.state
   }
+  if (m.action === "chunks") {
+    if (!Array.isArray(m.chunks) || !m.chunks.length || m.chunks.length > 64)
+      throw Error("Invalid disk batch.")
+    const values = []
+    const touched = new Set()
+    for (const chunk of m.chunks) {
+      values.push(await run({ ...chunk, action: "chunk", deferFlush: true }))
+      touched.add(chunk.index)
+    }
+    for (const index of touched) {
+      const h = handles.get(index)
+      h.data.flush()
+      checkpoint(h)
+    }
+    return values
+  }
   if (m.action === "chunk") {
     const h = await open(m.index),
       bytes = new Uint8Array(m.bytes)
@@ -97,13 +113,13 @@ async function run(m) {
       throw Error("Integrity verification failed. Retry the transfer.")
     if (h.data.write(bytes, { at: m.offset }) !== bytes.length)
       throw Error("Local disk write was incomplete. Free space and retry.")
-    h.data.flush()
+    if (!m.deferFlush) h.data.flush()
     h.state = {
       verified: false,
       offset: m.offset + bytes.length,
       chain: await hash(new TextEncoder().encode(`${h.state.chain}:${m.hash}`)),
     }
-    checkpoint(h)
+    if (!m.deferFlush) checkpoint(h)
     return h.state
   }
   if (m.action === "finish") {

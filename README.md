@@ -58,3 +58,5 @@ npm run build
 Production build fetches the existing Google Fonts. In environments behind a TLS proxy, configure the system CA bundle without disabling certificate validation. Tests cover text/size/expiry authorization boundaries, safe Markdown, encryption helpers, and the actual Wide Connect protocol/storage-worker code with deterministic browser adapters. They do not substitute for transfers between real browsers on different networks. No repeated Ballpit browser automation is used.
 
 Quick Transfer was restored from the pre-feature production source `69e673a`. See `docs/quick-transfer-restoration.md` for the exact source comparison, isolated media paths, retained security protections and corporate-alert verification limits.
+
+The November performance update adds durable P2P disk batching, a bounded sliding window, encrypted-upload retries, pipelined downloads and an expanded Clipboard & Text Pad workspace. See [performance and clipboard notes](docs/performance-and-clipboard.md) for research, measurements, regression coverage and browser limitations. No extra service configuration is required.

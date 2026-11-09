@@ -11,8 +11,7 @@ function isAuthorized(request: Request) {
   if (secret) {
     return authorization === `Bearer ${secret}`
   }
-  const userAgent = request.headers.get("user-agent") ?? ""
-  return userAgent.startsWith("vercel-cron/")
+  return false
 }
 
 export async function GET(request: Request) {

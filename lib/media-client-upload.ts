@@ -1,3 +1,4 @@
+import { putEncryptedPart as putWithProgress } from "@/lib/upload-put"
 import {
   ENCRYPTION_CHUNK_BYTES,
   PART_SIZE_BYTES,
@@ -25,48 +26,6 @@ export type TransferInitResponse = {
   files: UploadFilePlan[]
   error?: string
   remaining?: number
-}
-
-function putWithProgress(
-  url: string,
-  body: Blob | Uint8Array,
-  contentType: string | undefined,
-  onProgress: (loaded: number) => void,
-  signal: AbortSignal
-) {
-  return new Promise<string | null>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open("PUT", url)
-    if (contentType) xhr.setRequestHeader("Content-Type", contentType)
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(event.loaded)
-    }
-    xhr.onload = () => {
-      signal.removeEventListener("abort", onAbort)
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.getResponseHeader("ETag"))
-        return
-      }
-      reject(new Error("Upload couldn't be completed."))
-    }
-    xhr.onerror = () => {
-      signal.removeEventListener("abort", onAbort)
-      reject(new Error("Upload couldn't be completed."))
-    }
-    xhr.onabort = () => {
-      signal.removeEventListener("abort", onAbort)
-      reject(new DOMException("Aborted", "AbortError"))
-    }
-    const onAbort = () => xhr.abort()
-    signal.addEventListener("abort", onAbort, { once: true })
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"))
-      return
-    }
-    xhr.send(
-      body instanceof Uint8Array ? new Blob([new Uint8Array(body)]) : body
-    )
-  })
 }
 
 export async function requestTransfer(
@@ -165,13 +124,14 @@ export async function uploadEncryptedFiles(params: {
     const partLoaded: Record<number, number> = {}
 
     async function uploadPart(index: number) {
-      const packed = await encryptFileChunk(
+      const packedPromise = encryptFileChunk(
         source,
         key,
         plan.id,
         index,
         plan.chunkSize
       )
+      void packedPromise.catch(() => undefined)
       let url = plan.uploadUrl
       if (plan.mode === "multipart") {
         const urlResponse = await fetch(
@@ -199,6 +159,7 @@ export async function uploadEncryptedFiles(params: {
         url = urlData.url
       }
       if (!url) throw new Error("We couldn't prepare your files.")
+      const packed = await packedPromise
       const etag = await putWithProgress(
         url,
         packed,
@@ -215,7 +176,11 @@ export async function uploadEncryptedFiles(params: {
         params.signal
       )
       if (plan.mode === "multipart") {
-        parts.push({ partNumber: index + 1, etag: etag || `part-${index + 1}` })
+        if (!etag)
+          throw new Error(
+            "Storage did not expose an ETag. Check bucket CORS before retrying."
+          )
+        parts.push({ partNumber: index + 1, etag })
       }
     }
 

@@ -67,6 +67,7 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
     working = useRef(false),
     generation = useRef(-1),
     mounted = useRef(true)
+  const lastProgressPaint = useRef(0)
   const finishRequested = useRef(false)
   const fileInput = useRef<HTMLInputElement>(null),
     folderInput = useRef<HTMLInputElement>(null)
@@ -240,7 +241,11 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
           },
           progress: (p, n) => {
             localProgress.current = p
-            if (mounted.current) {
+            if (
+              mounted.current &&
+              Date.now() - lastProgressPaint.current >= 100
+            ) {
+              lastProgressPaint.current = Date.now()
               setProgress(p)
               setSent(n)
               const bytes = Object.values(p).reduce(
@@ -260,6 +265,7 @@ export function WideConnect({ token: initialToken }: { token?: string }) {
             })
           },
           complete: () => {
+            setProgress({ ...localProgress.current })
             setActive(false)
             setStatus("Complete · Every file verified and received")
             void persist(true).catch(() =>

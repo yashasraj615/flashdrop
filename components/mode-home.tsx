@@ -45,9 +45,9 @@ const modes = [
   },
   {
     id: "text",
-    name: "Text Pad",
-    description: "Share Markdown, notes, code, and plain text.",
-    detail: "Up to 15,000 lines · Temporary sharing",
+    name: "Clipboard & Text Pad",
+    description: "Paste, format, transform and share notes, code and Markdown.",
+    detail: "Editor tools · Local drafts · Temporary sharing",
     icon: NotebookPen,
     accent: "blue",
   },
