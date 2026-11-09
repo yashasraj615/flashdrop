@@ -367,8 +367,10 @@ describe("Wide Connect real chunk protocol with local storage worker", () => {
         chain: last!.chain,
       })
       expect(completed.verified).toBe(true)
-      expect(disk.get("/flashdrop-batched/data-0")).toEqual(
-        new Uint8Array(WIDE_CHUNK_BYTES * count).fill(4)
+      const persisted = new Uint8Array(disk.get("/flashdrop-batched/data-0")!)
+      expect(persisted.byteLength).toBe(WIDE_CHUNK_BYTES * count)
+      expect(await sha256(persisted.buffer)).toBe(
+        await sha256(new Uint8Array(WIDE_CHUNK_BYTES * count).fill(4).buffer)
       )
     } finally {
       p.sender.close()
