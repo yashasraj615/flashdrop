@@ -5,6 +5,48 @@ import {
   replaceLiteral,
   type TextTool,
 } from "@/lib/clipboard-tools"
+import { Toolbar } from "@base-ui/react/toolbar"
+import { ActionMenu } from "@/components/editor-controls"
+import {
+  ClipboardPaste,
+  Copy,
+  FileUp,
+  Download,
+  Undo2,
+  Redo2,
+  Bold,
+  Italic,
+  Heading2,
+  Code,
+  SquareCode,
+  ListTodo,
+  Quote,
+  Link2,
+  Search,
+  X,
+  WrapText,
+  TextSelect,
+  FileText,
+  NotebookPen,
+  Table2,
+  Braces,
+  CaseUpper,
+  CaseLower,
+  ListFilter,
+  ArrowDownAZ,
+  Link as LinkIcon,
+  Binary,
+  Eraser,
+  FolderOpen,
+  Save,
+  Trash2,
+  ChevronRight,
+  MoreHorizontal,
+  WandSparkles,
+  LayoutTemplate,
+  Check,
+  LockKeyhole,
+} from "lucide-react"
 import { TEXT_MAX_BYTES, validateText } from "@/lib/mode-limits"
 const templates = {
   note: "# Note\n\n## Summary\n\n## Next steps\n- [ ] First task\n",
@@ -30,8 +72,11 @@ export function ClipboardEditor({
   )
   const editor = useRef<HTMLTextAreaElement>(null)
   const upload = useRef<HTMLInputElement>(null)
-  const undo = useRef<string[]>([]),
-    redo = useRef<string[]>([])
+  const [undo, setUndo] = useState<string[]>([])
+  const [redo, setRedo] = useState<string[]>([])
+  const [finding, setFinding] = useState(false)
+  const [showDrafts, setShowDrafts] = useState(false)
+  const selection = useRef({ start: 0, end: 0 })
   const [notice, setNotice] = useState("")
   const [find, setFind] = useState(""),
     [replacement, setReplacement] = useState("")
@@ -43,16 +88,14 @@ export function ClipboardEditor({
       setNotice("This edit exceeds the 1 MiB limit.")
       return
     }
-    undo.current.push(value)
-    if (undo.current.length > 12) undo.current.shift()
-    redo.current = []
+    setUndo((previous) => [...previous, value].slice(-12))
+    setRedo([])
     onChange(next)
   }
   function insert(before: string, after = "") {
     const el = editor.current
     if (!el) return
-    const start = el.selectionStart,
-      end = el.selectionEnd
+    const { start, end } = selection.current
     change(
       value.slice(0, start) +
         before +
@@ -63,6 +106,10 @@ export function ClipboardEditor({
     requestAnimationFrame(() => {
       el.focus()
       el.setSelectionRange(start + before.length, end + before.length)
+      selection.current = {
+        start: start + before.length,
+        end: end + before.length,
+      }
     })
   }
   async function paste() {
@@ -144,182 +191,328 @@ export function ClipboardEditor({
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
+  const fileActions = [
+    ...(!readOnly
+      ? [
+          {
+            label: "Import a text file",
+            icon: FileUp,
+            action: () => upload.current?.click(),
+            description: "TXT, Markdown, JSON or code",
+          },
+        ]
+      : []),
+    {
+      label: "Export Markdown",
+      icon: Download,
+      action: exportFile,
+      description: "Download an original .md copy",
+    },
+    {
+      label: "Select all text",
+      icon: TextSelect,
+      action: () => {
+        editor.current?.focus()
+        editor.current?.select()
+      },
+    },
+    ...(!readOnly
+      ? [
+          {
+            label: "Save a local draft",
+            icon: Save,
+            action: saveDraft,
+            description: "Private to this browser tab",
+          },
+          {
+            label: "Browse local drafts",
+            icon: FolderOpen,
+            action: () => {
+              setDrafts(readDrafts())
+              setShowDrafts((v) => !v)
+            },
+          },
+        ]
+      : []),
+  ]
+  const transforms: {
+    label: string
+    icon: typeof CaseUpper
+    tool: TextTool
+    description?: string
+  }[] = [
+    { label: "UPPERCASE", icon: CaseUpper, tool: "upper" },
+    { label: "lowercase", icon: CaseLower, tool: "lower" },
+    { label: "Clean whitespace", icon: Eraser, tool: "trim" },
+    { label: "Remove duplicate lines", icon: ListFilter, tool: "deduplicate" },
+    { label: "Sort lines A–Z", icon: ArrowDownAZ, tool: "sort" },
+    { label: "Format JSON", icon: Braces, tool: "json" },
+    { label: "Minify JSON", icon: Braces, tool: "compact-json" },
+    { label: "URL encode", icon: LinkIcon, tool: "encode-url" },
+    { label: "URL decode", icon: LinkIcon, tool: "decode-url" },
+    { label: "Base64 encode", icon: Binary, tool: "encode-base64" },
+    { label: "Base64 decode", icon: Binary, tool: "decode-base64" },
+  ]
+  const formatting = [
+    {
+      label: "Bold",
+      icon: Bold,
+      before: "**",
+      after: "**",
+      shortcut: "⌘/Ctrl B",
+    },
+    { label: "Italic", icon: Italic, before: "_", after: "_" },
+    { label: "Heading", icon: Heading2, before: "## ", after: "" },
+    { label: "Inline code", icon: Code, before: "`", after: "`" },
+    {
+      label: "Link",
+      icon: Link2,
+      before: "[",
+      after: "](https://example.com)",
+    },
+  ]
   return (
-    <div className="clipboard-workspace space-y-3">
-      <div
-        className="flex flex-wrap gap-2"
-        role="toolbar"
-        aria-label="Clipboard tools"
+    <div className="editor-studio">
+      <div className="editor-document-bar">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="editor-document-icon">
+            <FileText size={20} aria-hidden />
+          </span>
+          <div>
+            <p className="text-sm font-medium text-white/90">
+              {readOnly ? "Shared document" : "Untitled document"}
+            </p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/40">
+              <LockKeyhole size={11} aria-hidden />
+              {readOnly
+                ? "Read-only original"
+                : "Only shared when you create a link"}
+            </p>
+          </div>
+        </div>
+        <div className="editor-document-actions">
+          {!readOnly && (
+            <button
+              className="editor-action editor-action-primary"
+              onClick={paste}
+            >
+              <ClipboardPaste size={16} aria-hidden />
+              Paste<span className="hidden sm:inline"> clipboard</span>
+            </button>
+          )}
+          <button
+            className="editor-action"
+            disabled={!value}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(value)
+                setNotice("Copied to clipboard.")
+              } catch {
+                setNotice("Select the text and copy it manually.")
+              }
+            }}
+          >
+            <Copy size={16} aria-hidden />
+            Copy
+          </button>
+          <ActionMenu label="File" icon={MoreHorizontal} items={fileActions} />
+        </div>
+      </div>
+      <Toolbar.Root
+        className="editor-format-bar"
+        aria-label="Document formatting and tools"
       >
         {!readOnly && (
           <>
-            <button className="clipboard-tool" onClick={paste}>
-              Paste clipboard
-            </button>
-            <button
-              className="clipboard-tool"
-              onClick={() => upload.current?.click()}
+            <Toolbar.Group
+              className="editor-tool-group"
+              aria-label="Edit history"
             >
-              Import text file
-            </button>
-            <button
-              className="clipboard-tool"
-              onClick={() => {
-                const previous = undo.current.pop()
-                if (previous !== undefined) {
-                  redo.current.push(value)
-                  onChange(previous)
-                }
-              }}
+              <Toolbar.Button
+                className="editor-icon-button"
+                aria-label="Undo"
+                title="Undo"
+                disabled={!undo.length}
+                onClick={() => {
+                  const previous = undo[undo.length - 1]
+                  if (previous !== undefined) {
+                    setUndo(undo.slice(0, -1))
+                    setRedo([...redo, value])
+                    onChange(previous)
+                  }
+                }}
+              >
+                <Undo2 size={17} />
+              </Toolbar.Button>
+              <Toolbar.Button
+                className="editor-icon-button"
+                aria-label="Redo"
+                title="Redo"
+                disabled={!redo.length}
+                onClick={() => {
+                  const next = redo[redo.length - 1]
+                  if (next !== undefined) {
+                    setRedo(redo.slice(0, -1))
+                    setUndo([...undo, value].slice(-12))
+                    onChange(next)
+                  }
+                }}
+              >
+                <Redo2 size={17} />
+              </Toolbar.Button>
+            </Toolbar.Group>
+            <Toolbar.Separator className="editor-tool-divider" />
+            <Toolbar.Group
+              className="editor-tool-group"
+              aria-label="Text formatting"
             >
-              Undo
-            </button>
-            <button
-              className="clipboard-tool"
-              onClick={() => {
-                const next = redo.current.pop()
-                if (next !== undefined) {
-                  undo.current.push(value)
-                  onChange(next)
-                }
-              }}
-            >
-              Redo
-            </button>
+              {formatting.map(
+                ({ label, icon: Icon, before, after, shortcut }) => (
+                  <Toolbar.Button
+                    key={label}
+                    className="editor-icon-button"
+                    aria-label={label}
+                    title={shortcut ? `${label} (${shortcut})` : label}
+                    onClick={() => insert(before, after)}
+                  >
+                    <Icon size={17} />
+                  </Toolbar.Button>
+                )
+              )}
+            </Toolbar.Group>
+            <Toolbar.Separator className="editor-tool-divider" />
+            <ActionMenu
+              toolbar
+              label="Insert"
+              icon={LayoutTemplate}
+              items={[
+                {
+                  label: "Task list",
+                  icon: ListTodo,
+                  action: () => insert("- [ ] "),
+                },
+                {
+                  label: "Block quote",
+                  icon: Quote,
+                  action: () => insert("> "),
+                },
+                {
+                  label: "Code block",
+                  icon: SquareCode,
+                  action: () => insert("\n```\n", "\n```\n"),
+                },
+                {
+                  label: "Note template",
+                  icon: NotebookPen,
+                  action: () => insert(templates.note),
+                  description: "Summary and next steps",
+                },
+                {
+                  label: "Meeting template",
+                  icon: FileText,
+                  action: () => insert(templates.meeting),
+                  description: "Agenda, decisions and actions",
+                },
+                {
+                  label: "Table template",
+                  icon: Table2,
+                  action: () => insert(templates.table),
+                  description: "A ready-to-edit Markdown table",
+                },
+              ]}
+            />
+            <ActionMenu
+              toolbar
+              label="Transform"
+              icon={WandSparkles}
+              items={transforms.map((t) => ({
+                label: t.label,
+                icon: t.icon,
+                action: () => apply(t.tool),
+              }))}
+            />
           </>
         )}
-        <button
-          className="clipboard-tool"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(value)
-              setNotice("Copied text.")
-            } catch {
-              setNotice("Select the editor text and copy manually.")
-            }
-          }}
+        <Toolbar.Group
+          className="editor-tool-group ml-auto"
+          aria-label="View options"
         >
-          Copy text
-        </button>
-        <button className="clipboard-tool" onClick={exportFile}>
-          Export .md
-        </button>
-        <button
-          className="clipboard-tool"
-          aria-pressed={wrap}
-          onClick={() => setWrap(!wrap)}
-        >
-          Wrap: {wrap ? "on" : "off"}
-        </button>
-        <button
-          className="clipboard-tool"
-          onClick={() => {
-            editor.current?.focus()
-            editor.current?.select()
-          }}
-        >
-          Select all
-        </button>
-      </div>
-      {!readOnly && (
-        <>
-          <div
-            className="flex flex-wrap gap-2"
-            role="toolbar"
-            aria-label="Markdown formatting"
+          {!readOnly && (
+            <Toolbar.Button
+              className="editor-icon-button"
+              aria-label="Find and replace"
+              title="Find and replace"
+              aria-pressed={finding}
+              onClick={() => setFinding(!finding)}
+            >
+              <Search size={17} />
+            </Toolbar.Button>
+          )}
+          <Toolbar.Button
+            className="editor-icon-button"
+            aria-label="Toggle line wrap"
+            title="Toggle line wrap"
+            aria-pressed={wrap}
+            onClick={() => setWrap(!wrap)}
           >
-            {[
-              ["Bold", "**", "**"],
-              ["Italic", "_", "_"],
-              ["Heading", "## ", ""],
-              ["Code", "`", "`"],
-              ["Code block", "\n```\n", "\n```\n"],
-              ["Task", "- [ ] ", ""],
-              ["Quote", "> ", ""],
-              ["Link", "[", "](https://example.com)"],
-            ].map(([label, before, after]) => (
-              <button
-                key={label}
-                className="clipboard-tool"
-                onClick={() => insert(before, after)}
-              >
-                {label}
-              </button>
-            ))}
-            <select
-              aria-label="Insert template"
-              className="mode-input"
-              value=""
-              onChange={(e) =>
-                insert(templates[e.target.value as keyof typeof templates])
-              }
-            >
-              <option value="" disabled>
-                Insert template…
-              </option>
-              {Object.keys(templates).map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Text transformation"
-              className="mode-input"
-              value=""
-              onChange={(e) => apply(e.target.value as TextTool)}
-            >
-              <option value="" disabled>
-                Transform text…
-              </option>
-              {[
-                "upper",
-                "lower",
-                "trim",
-                "deduplicate",
-                "sort",
-                "json",
-                "compact-json",
-                "encode-url",
-                "decode-url",
-                "encode-base64",
-                "decode-base64",
-              ].map((t) => (
-                <option key={t} value={t}>
-                  {t.replaceAll("-", " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-            <input
-              className="mode-input"
-              aria-label="Find literal text"
-              placeholder="Find literal text"
-              value={find}
-              onChange={(e) => setFind(e.target.value)}
-            />
-            <input
-              className="mode-input"
-              aria-label="Replacement text"
-              placeholder="Replace with"
-              value={replacement}
-              onChange={(e) => setReplacement(e.target.value)}
-            />
-            <button
-              className="clipboard-tool"
-              disabled={!find}
-              onClick={() => change(replaceLiteral(value, find, replacement))}
-            >
-              Replace all ({find ? value.split(find).length - 1 : 0})
-            </button>
-          </div>
-        </>
+            <WrapText size={17} />
+          </Toolbar.Button>
+        </Toolbar.Group>
+      </Toolbar.Root>
+      {finding && !readOnly && (
+        <div className="editor-find-panel">
+          <label className="editor-field">
+            <span>Find</span>
+            <div className="editor-input-wrap">
+              <Search size={15} aria-hidden />
+              <input
+                autoFocus
+                aria-label="Find literal text"
+                placeholder="Find in document…"
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+              />
+              <span className="editor-match-count">
+                {find ? value.split(find).length - 1 : 0}
+              </span>
+            </div>
+          </label>
+          <label className="editor-field">
+            <span>Replace with</span>
+            <div className="editor-input-wrap">
+              <input
+                aria-label="Replacement text"
+                placeholder="Replacement text…"
+                value={replacement}
+                onChange={(e) => setReplacement(e.target.value)}
+              />
+            </div>
+          </label>
+          <button
+            className="editor-action"
+            disabled={!find || !value.includes(find)}
+            onClick={() => change(replaceLiteral(value, find, replacement))}
+          >
+            Replace all
+            <ChevronRight size={14} />
+          </button>
+          <button
+            className="editor-icon-button"
+            aria-label="Close find and replace"
+            onClick={() => setFinding(false)}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
+      <div className="editor-canvas-label">
+        <span>{readOnly ? "ORIGINAL CONTENT" : "YOUR WORKSPACE"}</span>
+        <span>Plain text · Markdown supported</span>
+      </div>
       <textarea
         ref={editor}
         aria-label={readOnly ? "Original shared text" : "Write or paste text"}
-        className="mode-editor w-full resize-y p-4 font-mono text-sm leading-6"
+        className="editor-canvas"
         style={{
           whiteSpace: wrap ? "pre-wrap" : "pre",
           overflowWrap: wrap ? "anywhere" : "normal",
@@ -328,7 +521,13 @@ export function ClipboardEditor({
         readOnly={readOnly}
         value={value}
         onChange={(e) => change(e.target.value)}
-        placeholder="Write a note, paste your clipboard, import a file, or insert a template…"
+        onSelect={(e) => {
+          selection.current = {
+            start: e.currentTarget.selectionStart,
+            end: e.currentTarget.selectionEnd,
+          }
+        }}
+        placeholder="Start with a thought. Paste a snippet. Make it yours."
         onKeyDown={(e) => {
           if (!readOnly && (e.ctrlKey || e.metaKey) && e.key === "b") {
             e.preventDefault()
@@ -336,28 +535,58 @@ export function ClipboardEditor({
           }
         }}
       />
-      <p className="text-xs text-white/55">
-        {value.trim() ? value.trim().split(/\s+/u).length.toLocaleString() : 0}{" "}
-        words · {Math.ceil(words / 200)} min read · Paste requires browser
-        permission. No automatic clipboard monitoring.
-      </p>
-      {!readOnly && (
-        <details className="mode-notice">
-          <summary className="cursor-pointer">
-            Local drafts · saved only when you choose
-          </summary>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button className="clipboard-tool" onClick={saveDraft}>
-              Save draft in this tab
-            </button>
+      <div className="editor-status-bar">
+        <span>
+          {words.toLocaleString()} words
+          <span className="mx-2 opacity-40">/</span>
+          {value.length.toLocaleString()} characters
+        </span>
+        <span>
+          {wrap ? "Wrap on" : "Wrap off"}
+          <span className="mx-2 opacity-40">/</span>
+          {Math.ceil(words / 200)} min read
+        </span>
+      </div>
+      {showDrafts && !readOnly && (
+        <div className="editor-draft-panel">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="flex items-center gap-2 text-sm">
+              <FolderOpen size={16} />
+              Local drafts
+            </span>
             <button
-              className="clipboard-tool"
-              onClick={() => setDrafts(readDrafts())}
+              className="editor-icon-button"
+              aria-label="Close drafts"
+              onClick={() => setShowDrafts(false)}
             >
-              Load draft list
+              <X size={15} />
             </button>
+          </div>
+          <p className="mb-3 text-xs text-white/45">
+            Saved only in this tab. Never included in shared links.
+          </p>
+          {!drafts.length && (
+            <p className="text-sm text-white/60">
+              No drafts yet. Save one from the File menu.
+            </p>
+          )}
+          {drafts.map((d) => (
             <button
-              className="clipboard-tool"
+              key={d.id}
+              className="editor-draft-item"
+              onClick={() => change(d.text)}
+            >
+              <FileText size={16} />
+              <span className="min-w-0 flex-1 truncate">
+                {d.text.slice(0, 60) || "Empty document"}
+                <small className="mt-1 block text-white/40">{d.date}</small>
+              </span>
+              <ChevronRight size={14} />
+            </button>
+          ))}
+          {drafts.length > 0 && (
+            <button
+              className="mt-3 flex items-center gap-2 text-xs text-rose-300"
               onClick={() => {
                 try {
                   sessionStorage.removeItem("flashdrop-clipboard-drafts")
@@ -368,19 +597,17 @@ export function ClipboardEditor({
                 }
               }}
             >
-              Delete all drafts
+              <Trash2 size={14} />
+              Delete local drafts
             </button>
-          </div>
-          {drafts.map((d) => (
-            <button
-              key={d.id}
-              className="mt-2 block w-full truncate text-left text-sm"
-              onClick={() => change(d.text)}
-            >
-              {d.date} · {d.text.slice(0, 60) || "Empty draft"}
-            </button>
-          ))}
-        </details>
+          )}
+        </div>
+      )}
+      {notice && (
+        <p role="status" className="editor-feedback">
+          <Check size={14} aria-hidden />
+          {notice}
+        </p>
       )}
       <input
         ref={upload}
@@ -405,11 +632,6 @@ export function ClipboardEditor({
           }
         }}
       />
-      {notice && (
-        <p role="status" className="mode-notice">
-          {notice}
-        </p>
-      )}
     </div>
   )
 }

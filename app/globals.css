@@ -379,7 +379,75 @@ html.has-ghost-cursor [contenteditable] {
   }
 }
 
+
+/* Clipboard studio: deliberate action hierarchy, compact tools, calm writing surface. */
 @layer components {
-.clipboard-workspace { @apply rounded-2xl border border-cyan-300/15 bg-black/20 p-3 sm:p-4; }
-.clipboard-tool { @apply min-h-10 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/85 transition-colors hover:border-cyan-300/60 hover:bg-cyan-300/10 focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:opacity-40; }
+  .editor-studio { overflow: hidden; border: 1px solid #ffffff12; border-radius: 20px; background: #071018; box-shadow: 0 20px 60px #0003; }
+  .editor-document-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px; background:linear-gradient(120deg,#11232c,#0b1821); border-bottom:1px solid #ffffff0d; }
+  .editor-document-icon { display:grid; place-items:center; width:40px; height:44px; border:1px solid #7ce7e626; border-radius:10px; color:#9debe7; background:#a0f4ec09; }
+  .editor-document-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .editor-action,.editor-menu-trigger,.editor-select { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:38px; padding:8px 12px; border:1px solid #ffffff17; border-radius:9px; background:#ffffff05; color:#e3eeef; font-size:12px; font-weight:500; transition:background .15s,border-color .15s; cursor:pointer; white-space:nowrap; }
+  .editor-action:hover,.editor-menu-trigger:hover,.editor-select:hover { background:#ffffff0b; border-color:#ffffff30; }
+  .editor-action-primary { background:#9be8df; color:#07312d; border-color:#b6fff0; box-shadow:0 1px 0 #fff5 inset; }
+  .editor-action-primary:hover { background:#b4f7ec; border-color:#d2fff5; }
+  .editor-action:disabled,.editor-select:disabled { opacity:.35; cursor:not-allowed; }
+  .editor-action:focus-visible,.editor-menu-trigger:focus-visible,.editor-select:focus-visible,.editor-icon-button:focus-visible,.editor-draft-item:focus-visible { outline:2px solid #7eeade; outline-offset:3px; }
+  .editor-format-bar { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:10px 14px; border-bottom:1px solid #ffffff10; background:#0b171f; }
+  .editor-format-bar .editor-menu-trigger { border-color:transparent; background:transparent; padding-inline:8px; }
+  .editor-tool-group { display:flex; align-items:center; gap:2px; }
+  .editor-icon-button { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; width:34px; height:34px; padding:0; border:1px solid transparent; border-radius:7px; color:#a8bcc3; background:transparent; cursor:pointer; transition:background .15s,color .15s; }
+  .editor-icon-button:hover { background:#ffffff0b; color:white; }
+  .editor-icon-button[aria-pressed="true"] { color:#9be8df; background:#9be8df12; }
+  .editor-icon-button:disabled { opacity:.25; cursor:not-allowed; }
+  .editor-tool-divider { width:1px; height:19px; margin-inline:5px; background:#ffffff13; }
+  .editor-menu { min-width:230px; max-width:min(340px,calc(100vw - 24px)); max-height:min(460px,var(--available-height,460px)); overflow:auto; border:1px solid #34444e; border-radius:13px; padding:6px; background:#111e27; color:#dce8ec; box-shadow:0 18px 60px #0009,0 1px 0 #ffffff08 inset; outline:none; }
+  .editor-menu-label { padding:8px 10px 10px; color:#7f9ba6; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.14em; }
+  .editor-menu-item { display:flex; align-items:center; gap:11px; padding:10px; border-radius:7px; font-size:12px; cursor:pointer; outline:none; }
+  .editor-menu-item[data-highlighted],.editor-select-item[data-highlighted] { background:#b0f5eb12; color:#b4fff1; }
+  .editor-menu-item[data-disabled] { opacity:.35; }
+  .editor-menu-icon { display:grid; place-items:center; color:#8faeb9; }
+  .editor-select { justify-content:space-between; min-width:145px; padding-inline:13px; height:40px; background:#0a1720; border-color:#ffffff20; }
+  .editor-select-item { display:flex; align-items:center; justify-content:space-between; gap:24px; border-radius:7px; padding:10px 12px; font-size:13px; cursor:pointer; outline:none; }
+  .editor-find-panel { display:flex; align-items:flex-end; gap:10px; padding:16px; border-bottom:1px solid #ffffff10; background:#0c1c25; }
+  .editor-field { display:flex; flex:1; min-width:0; flex-direction:column; gap:7px; font-size:10px; font-weight:500; letter-spacing:.04em; color:#90aeb9; }
+  .editor-input-wrap { display:flex; align-items:center; gap:9px; border:1px solid #ffffff1c; border-radius:8px; padding:0 11px; height:39px; background:#061018; color:#6a8995; }
+  .editor-input-wrap:focus-within { border-color:#7eeade88; box-shadow:0 0 0 3px #7eeade0a; }
+  .editor-input-wrap input { min-width:0; width:100%; background:none; outline:none; border:none; color:#d8e9ee; font-size:12px; letter-spacing:normal; }
+  .editor-input-wrap input::placeholder { color:#57717d; }
+  .editor-match-count { color:#91b3bf; font-size:11px; }
+  .editor-canvas-label { display:flex; justify-content:space-between; gap:12px; padding:20px 24px 0; color:#496672; font-size:9px; letter-spacing:.13em; }
+  .editor-canvas-label span:last-child { letter-spacing:0; font-size:10px; }
+  .editor-canvas { display:block; width:100%; min-height:360px; max-height:75dvh; resize:vertical; padding:18px 24px 28px; border:none; border-radius:0; background:#071018; color:#d7e5ec; font:13px/1.85 "IBM Plex Sans",ui-monospace,monospace; caret-color:#9be8df; outline:none; tab-size:2; }
+  .editor-canvas::placeholder { color:#4a6370; }
+  .editor-canvas:focus { box-shadow:inset 3px 0 0 #9be8df44; }
+  .editor-status-bar { display:flex; justify-content:space-between; gap:12px; padding:12px 20px; border-top:1px solid #ffffff0b; color:#607f8b; font-size:10px; background:#0a161e; }
+  .editor-draft-panel { padding:18px 20px; background:#101e27; border-top:1px solid #ffffff10; }
+  .editor-draft-item { display:flex; width:100%; align-items:center; gap:12px; padding:12px; margin-top:5px; border-radius:8px; background:#ffffff04; text-align:left; font-size:12px; color:#bfd3db; }
+  .editor-draft-item:hover { background:#ffffff09; }
+  .editor-feedback { display:flex; align-items:center; gap:9px; padding:12px 20px; border-top:1px solid #ffffff10; background:#9be8df08; color:#a6d9cf; font-size:11px; }
+  .pad-view-tabs { display:flex; padding:3px; gap:3px; border:1px solid #ffffff12; background:#04101999; border-radius:10px; }
+  .pad-view-tabs button { display:flex; align-items:center; gap:7px; padding:7px 12px; border-radius:7px; font-size:12px; color:#7896a2; }
+  .pad-view-tabs button[aria-pressed="true"] { background:#ffffff0c; color:#e4f2f3; box-shadow:0 1px 4px #0002; }
+  .pad-share-panel { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:16px; padding-top:20px; border-top:1px solid #ffffff10; }
+  .mode-input { border-radius:10px; background:#07141d; border-color:#ffffff20; box-shadow:0 1px 2px #0002 inset; }
+  .mode-input:focus-visible { outline:2px solid #7eeade88; outline-offset:2px; }
+}
+@media(max-width:640px) {
+  .editor-document-bar { flex-direction:column; align-items:stretch; padding:15px; }
+  .editor-document-actions { justify-content:flex-start; }
+  .editor-document-actions .editor-action-primary { flex:1; }
+  .editor-format-bar { gap:3px; padding:8px; }
+  .editor-format-bar .editor-tool-divider { margin-inline:2px; }
+  .editor-icon-button { width:32px; }
+  .editor-find-panel { flex-wrap:wrap; }
+  .editor-find-panel .editor-field { flex-basis:calc(50% - 10px); }
+  .editor-canvas-label { padding-inline:16px; }
+  .editor-canvas-label span:last-child { display:none; }
+  .editor-canvas { padding-inline:16px; min-height:300px; font-size:13px; }
+  .editor-status-bar { padding-inline:14px; font-size:9px; }
+}
+@media (pointer:coarse) {
+  .editor-icon-button { width:38px; height:40px; }
+  .editor-action,.editor-menu-trigger,.editor-select { min-height:44px; }
+  .editor-menu-item,.editor-select-item { min-height:44px; }
 }

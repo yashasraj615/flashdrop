@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useContext, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion, useReducedMotion } from "motion/react"
 import {
@@ -14,6 +14,7 @@ import {
   XIcon,
 } from "lucide-react"
 
+import { QuickBusyContext } from "@/components/quick-app-frame"
 import { Countdown } from "@/components/countdown"
 import { FileGlyph } from "@/components/file-glyph"
 import { Notice, QuotaHint } from "@/components/notice"
@@ -70,6 +71,7 @@ function selectionSize(files: File[]) {
 }
 
 export function TransferExperience({ token }: { token?: string }) {
+  const setFrameBusy = useContext(QuickBusyContext)
   const router = useRouter()
   const reduceMotion = useReducedMotion()
   const { setScene, setProgress: setVisualProgress } = useAtmosphere()
@@ -81,6 +83,7 @@ export function TransferExperience({ token }: { token?: string }) {
   const manageRef = useRef<string | null>(null)
 
   const [phase, setPhase] = useState<Phase>(token ? "loading" : "create")
+  useEffect(()=>{setFrameBusy(phase === "uploading" || phase === "completing")},[phase,setFrameBusy])
   const [dragging, setDragging] = useState(false)
   const [selected, setSelected] = useState<File[]>([])
   const [notice, setNotice] = useState<{ title: string; description: string; action?: string } | null>(null)

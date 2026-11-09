@@ -223,6 +223,13 @@ if (media) {
   fileB.bytes[0] = 0x22
 }
 
+if (media && process.env.SMOKE_MEDIA_FIXTURE) {
+  fileA.bytes = readFileSync(process.env.SMOKE_MEDIA_FIXTURE)
+  fileA.filename = "original-4k.png"
+  fileA.mimeType = "image/png"
+  fileA.size = fileA.bytes.length
+}
+
 const secret = createSecret()
 const initResponse = await fetch(`${base}${api}`, {
   method: "POST",
@@ -389,6 +396,23 @@ for (const file of afterAdd.files) {
   ) {
     throw new Error(`checksum mismatch for ${file.filename}`)
   }
+  if (
+    media &&
+    process.env.SMOKE_MEDIA_FIXTURE &&
+    file.filename === fileA.filename
+  ) {
+    const downloadedDimensions = {
+      width: plain.readUInt32BE(16),
+      height: plain.readUInt32BE(20),
+    }
+    if (
+      downloadedDimensions.width !== fileA.bytes.readUInt32BE(16) ||
+      downloadedDimensions.height !== fileA.bytes.readUInt32BE(20)
+    )
+      throw new Error("Original image dimensions changed")
+    delivery[delivery.length - 1].downloadedImageDimensions =
+      downloadedDimensions
+  }
   downloaded += 1
 }
 
@@ -400,6 +424,13 @@ process.stdout.write(
     mode: media ? "media" : "quick",
     expirationPreserved: true,
     integrityVerified: true,
+    originalImageDimensions:
+      media && process.env.SMOKE_MEDIA_FIXTURE
+        ? {
+            width: fileA.bytes.readUInt32BE(16),
+            height: fileA.bytes.readUInt32BE(20),
+          }
+        : undefined,
     delivery,
     tokenLength: token.length,
     sameToken: true,

@@ -1,4 +1,5 @@
 "use client"
+import { useAtmosphere } from "@/components/atmosphere"
 import { AppFrame } from "@/components/app-frame"
 import { QuickAppFrame } from "@/components/quick-app-frame"
 import { useState } from "react"
@@ -61,11 +62,19 @@ const modes = [
   },
 ] as const
 export function ModeHome() {
+  const { setScene, setProgress } = useAtmosphere()
   const [mode, setMode] = useState<string | null>(null),
     [backMessage, setBackMessage] = useState("")
   if (mode === "quick")
     return (
-      <QuickAppFrame>
+      <QuickAppFrame
+        onBack={() => {
+          history.replaceState(null, "", "/")
+          setScene("idle")
+          setProgress(0)
+          setMode(null)
+        }}
+      >
         <TransferExperience />
       </QuickAppFrame>
     )

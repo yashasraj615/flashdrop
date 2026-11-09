@@ -1,5 +1,7 @@
 "use client"
 import { useEffect, useState, useDeferredValue } from "react"
+import { EditorSelect } from "@/components/editor-controls"
+import { PenLine, Eye, Clipboard, Clock3 } from "lucide-react"
 import { ClipboardEditor } from "@/components/clipboard-editor"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -162,33 +164,36 @@ export function TextPad({ token }: { token?: string }) {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="text-format">
-              Text format
-            </label>
-            <select
-              id="text-format"
-              className="mode-input"
+            <EditorSelect
+              label="Text format"
               value={format}
               disabled={Boolean(token)}
-              onChange={(e) => {
-                setFormat(e.target.value)
+              onChange={(value) => {
+                setFormat(value)
                 setUrl("")
                 setExpiry("")
               }}
-            >
-              <option value="markdown">Markdown</option>
-              <option value="plain">Plain text / code</option>
-            </select>
-            <MagneticButton
-              variant="secondary"
-              onClick={() => setPreview(!preview)}
-              aria-pressed={preview}
-            >
-              {preview ? "View source" : "Preview"}
-            </MagneticButton>
-            <MagneticButton variant="ghost" onClick={copy} disabled={!text}>
-              Copy all
-            </MagneticButton>
+              options={[
+                { label: "Markdown", value: "markdown" },
+                { label: "Plain text / code", value: "plain" },
+              ]}
+            />
+            <div className="pad-view-tabs" aria-label="Document view">
+              <button aria-pressed={!preview} onClick={() => setPreview(false)}>
+                <PenLine size={14} />
+                {token ? "Source" : "Write"}
+              </button>
+              <button aria-pressed={preview} onClick={() => setPreview(true)}>
+                <Eye size={14} />
+                Preview
+              </button>
+            </div>
+            {preview && (
+              <MagneticButton variant="ghost" onClick={copy} disabled={!text}>
+                <Clipboard size={14} />
+                Copy text
+              </MagneticButton>
+            )}
             {token && (
               <MagneticButton
                 variant="ghost"
@@ -199,7 +204,7 @@ export function TextPad({ token }: { token?: string }) {
               </MagneticButton>
             )}
           </div>
-          {preview ? (
+          {preview && (
             <div className="mode-editor overflow-auto p-5">
               {format === "markdown" ? (
                 <Markdown text={deferred} />
@@ -207,7 +212,8 @@ export function TextPad({ token }: { token?: string }) {
                 <pre className="break-words whitespace-pre-wrap">{text}</pre>
               )}
             </div>
-          ) : (
+          )}
+          <div hidden={preview}>
             <ClipboardEditor
               value={text}
               readOnly={Boolean(token)}
@@ -217,7 +223,7 @@ export function TextPad({ token }: { token?: string }) {
                 setExpiry("")
               }}
             />
-          )}
+          </div>
           <p
             className={
               lines > TEXT_MAX_LINES || bytes > TEXT_MAX_BYTES
@@ -231,20 +237,26 @@ export function TextPad({ token }: { token?: string }) {
           </p>
           {!token && (
             <>
-              <label className="flex flex-wrap items-center gap-3 text-sm">
-                Share for
-                <select
-                  className="mode-input"
-                  value={lifetime}
-                  onChange={(e) => setLifetime(Number(e.target.value))}
-                >
-                  {LIFETIME_OPTIONS.map((o) => (
-                    <option key={o.seconds} value={o.seconds}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="pad-share-panel">
+                <div>
+                  <p className="flex items-center gap-2 text-sm text-white/85">
+                    <Clock3 size={15} className="text-primary/70" />
+                    Share on your terms
+                  </p>
+                  <p className="mt-1 text-xs text-white/40">
+                    Choose when access to this document ends.
+                  </p>
+                </div>
+                <EditorSelect
+                  label="Share lifetime"
+                  value={String(lifetime)}
+                  onChange={(value) => setLifetime(Number(value))}
+                  options={LIFETIME_OPTIONS.map((o) => ({
+                    label: o.label,
+                    value: String(o.seconds),
+                  }))}
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <MagneticButton
                   onClick={save}

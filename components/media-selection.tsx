@@ -24,6 +24,7 @@ export function MediaSelection({
 function MediaItem({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState("")
   const [previewError, setPreviewError] = useState(false)
+  const [dimensions, setDimensions] = useState("")
   useEffect(() => {
     const u = URL.createObjectURL(file)
     // Object URLs are browser resources and must be created/revoked with the component lifecycle.
@@ -42,6 +43,11 @@ function MediaItem({ file, onRemove }: { file: File; onRemove: () => void }) {
           src={url}
           controls
           preload="metadata"
+          onLoadedMetadata={(e) =>
+            setDimensions(
+              `${e.currentTarget.videoWidth} × ${e.currentTarget.videoHeight}`
+            )
+          }
           onError={() => setPreviewError(true)}
           className="aspect-square w-full object-contain"
           aria-label={`Preview ${file.name}`}
@@ -50,8 +56,13 @@ function MediaItem({ file, onRemove }: { file: File; onRemove: () => void }) {
         <img
           src={url}
           alt={file.name}
+          onLoad={(e) =>
+            setDimensions(
+              `${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`
+            )
+          }
           onError={() => setPreviewError(true)}
-          className="aspect-square w-full object-cover"
+          className="aspect-square w-full bg-black/25 object-contain"
         />
       )}
       <div className="p-3">
@@ -60,6 +71,11 @@ function MediaItem({ file, onRemove }: { file: File; onRemove: () => void }) {
         </p>
         <p className="mt-1 text-xs text-white/55">
           {formatBytes(file.size)} · Original
+          {dimensions && (
+            <span className="mt-1 block text-[10px] text-primary/70">
+              {dimensions} · Full resolution
+            </span>
+          )}
         </p>
         <MagneticButton
           className="mt-2 w-full"

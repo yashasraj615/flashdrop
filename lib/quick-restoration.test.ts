@@ -8,11 +8,15 @@ import { transferShareUrl } from "./share-secret"
 
 afterEach(() => vi.unstubAllGlobals())
 describe("historical Quick Transfer restoration", () => {
-  // November performance work intentionally changes these helpers; wire-format and lifecycle tests cover them.
+  // November performance work and requested Quick navigation intentionally change these files; wire-format, lifecycle and browser checks cover them.
   it.each(
     Object.entries(baseline.sha256).filter(
       ([path]) =>
-        !["lib/client-upload.ts", "lib/client-download.ts"].includes(path)
+        ![
+          "lib/client-upload.ts",
+          "lib/client-download.ts",
+          "components/transfer-experience.tsx",
+        ].includes(path)
     )
   )("matches recovered source exactly: %s", (path, expected) => {
     expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(
