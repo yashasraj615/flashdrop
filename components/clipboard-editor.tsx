@@ -1,5 +1,5 @@
 "use client"
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import {
   transformText,
   replaceLiteral,
@@ -24,6 +24,10 @@ export function ClipboardEditor({
   onChange: (value: string) => void
   readOnly: boolean
 }) {
+  const words = useMemo(
+    () => (value.trim() ? value.trim().split(/\s+/u).length : 0),
+    [value]
+  )
   const editor = useRef<HTMLTextAreaElement>(null)
   const upload = useRef<HTMLInputElement>(null)
   const undo = useRef<string[]>([]),
@@ -334,8 +338,8 @@ export function ClipboardEditor({
       />
       <p className="text-xs text-white/55">
         {value.trim() ? value.trim().split(/\s+/u).length.toLocaleString() : 0}{" "}
-        words · {Math.ceil(value.trim().split(/\s+/u).length / 200)} min read ·
-        Paste requires browser permission. No automatic clipboard monitoring.
+        words · {Math.ceil(words / 200)} min read · Paste requires browser
+        permission. No automatic clipboard monitoring.
       </p>
       {!readOnly && (
         <details className="mode-notice">
